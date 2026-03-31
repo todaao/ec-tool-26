@@ -449,7 +449,7 @@ function renderDailyContent(){
     })).filter(ds=>ds.data.some(v=>v>0));
     buildDailyChart(dates,datasets);
     // Table
-    let html=`<thead><tr><th>日付</th><th>セール</th>${ALL_MALLS.map(m=>`<th class="num" style="font-size:10px;color:${MALL_COLORS[m]}">${MALL_SHORT[m]}</th>`).join('')}<th class="num">合計</th></tr></thead><tbody>`;
+    let html=`<thead><tr><th>日付</th><th>セール</th>${ALL_MALLS.map(m=>`<th class="num" style="font-size:10px;color:${MALL_COLORS[m]}">${m}</th>`).join('')}<th class="num">合計</th></tr></thead><tbody>`;
     dates.forEach(d=>{
       const day=DATA.daily[d]||{};
       const saleMalls=ALL_MALLS.filter(m=>salesOnDate(d,m).length>0);
@@ -562,7 +562,7 @@ function renderChangeBody(){
   }).filter(x=>x.cur>0||x.prev>0);
 
   const mall_opts=['all','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','★自社国内EC'];
-  const mallBtns=mall_opts.map(m=>`<button class="btn ${chgMall===m?'active':''}" onclick="chgMall='${m}';renderChangeProd('${cur}','${prev}')">${m==='all'?'全て':MALL_SHORT[m]||m}</button>`).join('');
+  const mallBtns=mall_opts.map(m=>`<button class="btn ${chgMall===m?'active':''}" onclick="chgMall='${m}';renderChangeProd('${cur}','${prev}')">${m==='all'?'全て':m}</button>`).join('');
 
   body.innerHTML=`
     <div style="font-size:11px;color:var(--tx3);margin-bottom:12px">${prev} → ${cur}</div>
@@ -612,59 +612,110 @@ function renderChangeProd(cur,prev){
 // ═══════════════════════════════════════════
 // RANKING
 // ═══════════════════════════════════════════
-let rkPeriod='weekly', rkMall='all';
+let rkMall='all', rkSort='amount', rkStart='', rkEnd='';
 
 function renderRanking(){
   if(!DATA)return;
+  // Init date range from available data
+  const dates=Object.keys(DATA.daily).sort();
+  if(!rkStart) rkStart=dates[0]||'';
+  if(!rkEnd)   rkEnd=dates[dates.length-1]||'';
+
+  const mallOpts=['all','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','★自社国内EC','yahoo','LINE GIFT','TANP','メルカリ'];
+
   document.getElementById('pane-ranking').innerHTML=`
     <div class="card">
-      <div class="card-title">売れ筋 TOP30</div>
-      <div class="btn-group">
-        <button class="btn ${rkPeriod==='weekly'?'active':''}" onclick="rkPeriod='weekly';renderRankBody()">週次</button>
-        <button class="btn ${rkPeriod==='monthly'?'active':''}" onclick="rkPeriod='monthly';renderRankBody()">月次</button>
+      <div class="card-title">売れ筋 TOP30（SKU単位）</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <label style="font-size:11px;color:var(--tx2)">期間：</label>
+        <input type="date" class="input-date" id="rk-start" value="${rkStart}" onchange="rkStart=this.value;renderRankBody()">
+        <span style="color:var(--tx3)">〜</span>
+        <input type="date" class="input-date" id="rk-end" value="${rkEnd}" onchange="rkEnd=this.value;renderRankBody()">
       </div>
-      <div class="btn-group" id="rk-mall-btns"></div>
+      <div class="btn-group">
+        ${mallOpts.map(m=>`<button class="btn ${rkMall===m?'active':''}" onclick="rkMall='${m}';renderRankBody()">${m==='all'?'全て':m}</button>`).join('')}
+      </div>
       <div id="rk-body"></div>
     </div>`;
   renderRankBody();
 }
 
 function renderRankBody(){
-  const opts=['all','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','★自社国内EC'];
-  const mb=document.getElementById('rk-mall-btns');
-  if(mb) mb.innerHTML=opts.map(m=>`<button class="btn ${rkMall===m?'active':''}" onclick="rkMall='${m}';renderRankBody()">${m==='all'?'全て':MALL_SHORT[m]||m}</button>`).join('');
+  // Sync date inputs if they exist
+  const si=document.getElementById('rk-start'), ei=document.getElementById('rk-end');
+  if(si) si.value=rkStart;
+  if(ei) ei.value=rkEnd;
 
-  const src=rkPeriod==='weekly'?DATA.weekly_product:DATA.monthly_product;
-  const periods=rkPeriod==='weekly'?Object.keys(DATA.weekly).sort():[...new Set(src.map(r=>`${r.year}-${String(r.month).padStart(2,'0')}`))].sort();
-  const latest=periods[periods.length-1];
-  let filtered=rkPeriod==='weekly'?src.filter(r=>r.week_end===latest):src.filter(r=>{const[y,m]=latest.split('-').map(Number);return r.year===y&&r.month===m;});
-  if(rkMall!=='all') filtered=filtered.filter(r=>r['モール']===rkMall);
-
-  // Aggregate by product
-  const aggA={}, aggQ={}, aggMalls={};
-  filtered.forEach(r=>{
-    const p=r['商品名'];
-    aggA[p]=(aggA[p]||0)+r['売上高万'];
-    aggQ[p]=(aggQ[p]||0)+r['売上個数'];
-    if(!aggMalls[p]) aggMalls[p]=new Set();
-    aggMalls[p].add(r['モール']);
+  // Update mall buttons
+  document.querySelectorAll('#pane-ranking .btn-group .btn').forEach(b=>{
+    const onclick=b.getAttribute('onclick')||'';
+    const m=onclick.match(/rkMall='([^']+)'/)?.[1];
+    if(m!==undefined) b.className='btn '+(rkMall===m?'active':'');
   });
-  const top30=Object.entries(aggA).sort((a,b)=>b[1]-a[1]).slice(0,30);
-  const showMalls=rkMall==='all';
 
+  // Filter brand_pivot by date range and mall
+  let rows=DATA.brand_pivot.filter(r=>r.date_str>=rkStart&&r.date_str<=rkEnd);
+  if(rkMall!=='all') rows=rows.filter(r=>r['モール']===rkMall);
+
+  // Aggregate by 商品名＋型番（SKU単位）＋ブランド
+  const aggA={}, aggQ={}, aggBrand={}, aggMalls={};
+  rows.forEach(r=>{
+    const key=r['商品名']+'___'+r['型番'];
+    aggA[key]=(aggA[key]||0)+r['売上高万'];
+    aggQ[key]=(aggQ[key]||0)+r['売上個数'];
+    aggBrand[key]=r['ブランド正規化'];
+    if(!aggMalls[key]) aggMalls[key]=new Set();
+    aggMalls[key].add(r['モール']);
+  });
+
+  // Sort by selected metric, take top 30
+  const entries=Object.entries(aggA)
+    .filter(([k])=>aggA[k]>0||aggQ[k]>0)
+    .sort((a,b)=>rkSort==='amount'?(b[1]-a[1]):(aggQ[b[0]]-aggQ[a[0]]))
+    .slice(0,30);
+
+  const showMalls=rkMall==='all';
   const body=document.getElementById('rk-body');
   if(!body)return;
+
+  if(!entries.length){body.innerHTML='<div class="no-data">該当期間にデータがありません</div>';return;}
+
+  const sortBtn=(label,val)=>`<button class="btn ${rkSort===val?'active':''}" style="font-size:11px;padding:4px 10px" onclick="rkSort='${val}';renderRankBody()">${label}</button>`;
+
   body.innerHTML=`
-    <div style="font-size:11px;color:var(--tx3);margin-bottom:8px">集計期間：${latest}</div>
-    <table><thead><tr><th>#</th><th>商品名</th><th class="num">売上高</th><th class="num">数量</th>${showMalls?'<th>取扱モール</th>':''}</tr></thead><tbody>
-    ${top30.map(([p,v],i)=>`<tr>
-      <td><span class="rank-num ${i<3?'top3':''}">${i+1}</span></td>
-      <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis">${p}</td>
-      <td class="num">${v.toFixed(1)}万</td>
-      <td class="num">${(aggQ[p]||0).toLocaleString()}個</td>
-      ${showMalls?`<td><div class="mall-icons">${[...aggMalls[p]].map(m=>`<span class="mi" style="background:${MALL_COLORS[m]||'#555'}">${MALL_SHORT[m]||m}</span>`).join('')}</div></td>`:''}
-    </tr>`).join('')}
-    </tbody></table>`;
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <span style="font-size:11px;color:var(--tx2)">並べ替え：</span>
+      ${sortBtn('売上高順','amount')}
+      ${sortBtn('数量順','qty')}
+    </div>
+    <table>
+      <thead><tr>
+        <th>#</th>
+        <th>ブランド</th>
+        <th>商品名</th>
+        <th>SKU（型番）</th>
+        <th class="num" style="cursor:pointer" onclick="rkSort='amount';renderRankBody()">売上高${rkSort==='amount'?'▾':''}</th>
+        <th class="num" style="cursor:pointer" onclick="rkSort='qty';renderRankBody()">数量${rkSort==='qty'?'▾':''}</th>
+        ${showMalls?'<th>取扱モール</th>':''}
+      </tr></thead>
+      <tbody>
+      ${entries.map(([key,v],i)=>{
+        const[prod,sku]=key.split('___');
+        const q=aggQ[key]||0;
+        const brand=aggBrand[key]||'';
+        const malls=[...aggMalls[key]];
+        return`<tr>
+          <td><span class="rank-num ${i<3?'top3':''}">${i+1}</span></td>
+          <td style="font-size:11px;color:var(--tx2);white-space:nowrap">${brand}</td>
+          <td style="font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis">${prod}</td>
+          <td style="font-size:11px;color:var(--tx2);max-width:130px;overflow:hidden;text-overflow:ellipsis">${sku||'(単品)'}</td>
+          <td class="num" style="${rkSort==='amount'?'font-weight:600;color:var(--ac)':''}">${v.toFixed(1)}万</td>
+          <td class="num" style="${rkSort==='qty'?'font-weight:600;color:var(--ac)':''}">${q.toLocaleString()}個</td>
+          ${showMalls?`<td><div class="mall-icons">${malls.map(m=>`<span class="mi" title="${m}" style="background:${MALL_COLORS[m]||'#555'}">${MALL_SHORT[m]||m.slice(0,2)}</span>`).join('')}</div></td>`:''}
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>`;
 }
 
 // ═══════════════════════════════════════════
@@ -747,47 +798,152 @@ function renderNpCharts(){
 // ═══════════════════════════════════════════
 // BUDGET
 // ═══════════════════════════════════════════
+const BRAND_COLORS={
+  '1.TOKOTOYZ':'#5c73f2','2.MilleFée':'#f472b6','3.Maison de MilleFée':'#a78bfa',
+  '4.fractionalCC':'#34d399','jill leen.':'#fb923c','HiCA':'#60a5fa',
+  'Emery Emily':'#f87171','GOGO TALES':'#facc15','COLORROSE':'#e879f9',
+  'FOCALLURE':'#2dd4bf','LTLYL':'#fb7185'
+};
+let bgSelectedMonth=null;
+
+function getBudgetBase(){
+  const months=[1,2,3,4,5,6,7,8,9,10,11,12];
+  const mallOrder=['★自社国内EC','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','yahoo','LINE GIFT','TANP','メルカリ'];
+  const targets=DATA.targets;
+  const byMallMonth={}, byBrandMonth={};
+  DATA.monthly_product.forEach(r=>{
+    const m=r['モール'],mo=r.month,b=r['ブランド正規化'],v=r['売上高万'];
+    if(!byMallMonth[m]) byMallMonth[m]={};
+    byMallMonth[m][mo]=(byMallMonth[m][mo]||0)+v;
+    if(!byBrandMonth[mo]) byBrandMonth[mo]={};
+    byBrandMonth[mo][b]=(byBrandMonth[mo][b]||0)+v;
+  });
+  return{months,mallOrder,targets,byMallMonth,byBrandMonth};
+}
+
 function renderBudget(){
   if(!DATA)return;
-  const targets=DATA.targets;
-  const months=[1,2,3,4,5,6,7,8,9,10,11,12];
-  // 自社ECを先頭に
-  const mallOrder=['★自社国内EC','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','yahoo','LINE GIFT','TANP','メルカリ'];
-  const actualByMallMonth={};
-  DATA.monthly_product.forEach(r=>{
-    const{モール:m,month:mo,売上高万:v}=r;
-    if(!actualByMallMonth[m]) actualByMallMonth[m]={};
-    actualByMallMonth[m][mo]=(actualByMallMonth[m][mo]||0)+v;
-  });
-  let html='';
+  const{months,mallOrder,targets,byMallMonth,byBrandMonth}=getBudgetBase();
+  const availMonths=[...new Set(DATA.monthly_product.map(r=>r.month))].sort((a,b)=>a-b);
+  if(!bgSelectedMonth||!availMonths.includes(bgSelectedMonth)) bgSelectedMonth=availMonths[availMonths.length-1]||3;
+
+  Object.keys(charts).filter(k=>k.startsWith('bg-')).forEach(k=>{if(charts[k]){charts[k].destroy();delete charts[k];}});
+
+  // 総合集計
+  const totalMonthT=months.map(m=>mallOrder.reduce((s,ml)=>s+(targets[ml]?.[String(m)]||0),0));
+  const totalMonthA=months.map(m=>mallOrder.reduce((s,ml)=>s+(byMallMonth[ml]?.[m]||0),0));
+  const totalT=totalMonthT.reduce((a,v)=>a+v,0);
+  const totalA=totalMonthA.reduce((a,v)=>a+v,0);
+  const totalR=totalT>0?totalA/totalT*100:0;
+
+  const pane=document.getElementById('pane-budget');
+  pane.innerHTML=`
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span style="font-size:15px;font-weight:700">📦 全モール合計</span>
+      <span style="font-size:12px;color:var(--tx2)">年間実績 ${totalA.toFixed(1)}万 / 目標 ${totalT.toFixed(0)}万</span>
+    </div>
+    <div class="pbar" style="height:10px;margin-bottom:6px"><div class="pfill" style="width:${Math.min(totalR,100)}%;background:${totalR>=100?'var(--ac2)':totalR>=80?'#f5a623':'var(--ac)'}"></div></div>
+    <div style="font-size:11px;color:var(--tx3);margin-bottom:14px">年間達成率 ${totalR.toFixed(1)}%</div>
+    <div class="tbl-wrap"><table style="font-size:11px">
+      <thead><tr><th>　</th>${months.map(m=>`<th class="num">${m}月</th>`).join('')}<th class="num">年間</th></tr></thead>
+      <tbody>
+        <tr><td style="color:var(--tx2)">目標(万)</td>${totalMonthT.map(v=>`<td class="num">${v?v.toFixed(0):'-'}</td>`).join('')}<td class="num" style="font-weight:600">${totalT.toFixed(0)}</td></tr>
+        <tr><td style="color:var(--tx2)">実績(万)</td>${totalMonthA.map(v=>`<td class="num">${v?v.toFixed(1):'-'}</td>`).join('')}<td class="num" style="font-weight:600">${totalA.toFixed(1)}</td></tr>
+        <tr><td style="color:var(--tx2)">達成率</td>${months.map((_,i)=>{const tv=totalMonthT[i],av=totalMonthA[i];if(!tv)return'<td class="num">-</td>';const r=av/tv*100,c=r>=100?'var(--ac2)':r>=80?'#f5a623':'#ff6b6b';return`<td class="num" style="color:${c}">${r.toFixed(0)}%</td>`;}).join('')}<td class="num"></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">月次内訳グラフ</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--tx2)">円グラフ対象月：</span>
+      <div class="btn-group" style="margin:0">${availMonths.map(m=>`<button class="btn ${bgSelectedMonth===m?'active':''}" onclick="bgSelectedMonth=${m};renderBudget()">${m}月</button>`).join('')}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+      <div>
+        <div style="font-size:11px;color:var(--tx2);text-align:center;margin-bottom:6px">${bgSelectedMonth}月 ブランド別構成</div>
+        <div style="max-width:300px;margin:0 auto"><canvas id="bg-pie-brand"></canvas></div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--tx2);text-align:center;margin-bottom:6px">${bgSelectedMonth}月 モール別構成</div>
+        <div style="max-width:300px;margin:0 auto"><canvas id="bg-pie-mall"></canvas></div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--tx2);margin-bottom:6px">月次ブランド割合推移</div>
+    <div style="margin-bottom:20px"><canvas id="bg-bar-brand" style="max-height:180px"></canvas></div>
+    <div style="font-size:11px;color:var(--tx2);margin-bottom:6px">月次モール割合推移</div>
+    <canvas id="bg-bar-mall" style="max-height:180px"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="card-title">モール別詳細</div>
+    <div id="bg-mall-detail"></div>
+  </div>`;
+
+  // 円グラフ：ブランド別
+  const brandData=byBrandMonth[bgSelectedMonth]||{};
+  const bLabels=Object.keys(brandData).sort((a,b)=>brandData[b]-brandData[a]);
+  const bVals=bLabels.map(b=>brandData[b]);
+  const bColors=bLabels.map(b=>BRAND_COLORS[b]||'#888');
+  const ctxPB=document.getElementById('bg-pie-brand');
+  if(ctxPB) charts['bg-pie-brand']=new Chart(ctxPB,{type:'doughnut',data:{labels:bLabels,datasets:[{data:bVals,backgroundColor:bColors,borderWidth:1,borderColor:'#1a1d27'}]},options:{responsive:true,plugins:{legend:{position:'right',labels:{color:'#8b8fa8',boxWidth:10,font:{size:10}}},tooltip:{callbacks:{label:ctx=>{const tot=bVals.reduce((a,b)=>a+b,0);return`${ctx.label}: ${ctx.parsed.toFixed(1)}万 (${(ctx.parsed/tot*100).toFixed(1)}%)`;}}}}}});
+
+  // 円グラフ：モール別
+  const mData={};
+  mallOrder.forEach(m=>{const v=byMallMonth[m]?.[bgSelectedMonth]||0;if(v>0)mData[m]=v;});
+  const mLabels=Object.keys(mData).sort((a,b)=>mData[b]-mData[a]);
+  const mVals=mLabels.map(m=>mData[m]);
+  const mColors=mLabels.map(m=>MALL_COLORS[m]||'#888');
+  const ctxPM=document.getElementById('bg-pie-mall');
+  if(ctxPM) charts['bg-pie-mall']=new Chart(ctxPM,{type:'doughnut',data:{labels:mLabels,datasets:[{data:mVals,backgroundColor:mColors,borderWidth:1,borderColor:'#1a1d27'}]},options:{responsive:true,plugins:{legend:{position:'right',labels:{color:'#8b8fa8',boxWidth:10,font:{size:10}}},tooltip:{callbacks:{label:ctx=>{const tot=mVals.reduce((a,b)=>a+b,0);return`${ctx.label}: ${ctx.parsed.toFixed(1)}万 (${(ctx.parsed/tot*100).toFixed(1)}%)`;}}}}}});
+
+  // 帯グラフ：ブランド割合
+  const allBrands=[...new Set(DATA.monthly_product.map(r=>r['ブランド正規化']))].sort();
+  const brandBarDS=allBrands.map(b=>({
+    label:b,
+    data:availMonths.map(m=>{const tot=Object.values(byBrandMonth[m]||{}).reduce((a,v)=>a+v,0);const v=byBrandMonth[m]?.[b]||0;return tot>0?Math.round(v/tot*1000)/10:0;}),
+    backgroundColor:BRAND_COLORS[b]||'#888',stack:'a'
+  })).filter(ds=>ds.data.some(v=>v>0));
+  const ctxBB=document.getElementById('bg-bar-brand');
+  if(ctxBB) charts['bg-bar-brand']=new Chart(ctxBB,{type:'bar',data:{labels:availMonths.map(m=>m+'月'),datasets:brandBarDS},options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{labels:{color:'#8b8fa8',boxWidth:8,font:{size:9}}}},scales:{x:{stacked:true,ticks:{color:'#5a5f7d',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y:{stacked:true,max:100,ticks:{color:'#5a5f7d',font:{size:10},callback:v=>v+'%'},grid:{color:'rgba(255,255,255,.06)'}}}}});
+
+  // 帯グラフ：モール割合
+  const mallBarDS=mallOrder.map(m=>({
+    label:m,
+    data:availMonths.map(mo=>{const tot=mallOrder.reduce((s,ml)=>s+(byMallMonth[ml]?.[mo]||0),0);const v=byMallMonth[m]?.[mo]||0;return tot>0?Math.round(v/tot*1000)/10:0;}),
+    backgroundColor:MALL_COLORS[m]||'#888',stack:'a'
+  })).filter(ds=>ds.data.some(v=>v>0));
+  const ctxBM=document.getElementById('bg-bar-mall');
+  if(ctxBM) charts['bg-bar-mall']=new Chart(ctxBM,{type:'bar',data:{labels:availMonths.map(m=>m+'月'),datasets:mallBarDS},options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{labels:{color:'#8b8fa8',boxWidth:8,font:{size:10}}}},scales:{x:{stacked:true,ticks:{color:'#5a5f7d',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y:{stacked:true,max:100,ticks:{color:'#5a5f7d',font:{size:10},callback:v=>v+'%'},grid:{color:'rgba(255,255,255,.06)'}}}}});
+
+  // モール別詳細
+  let det='';
   mallOrder.forEach(mall=>{
-    const t=targets[mall]||{}, a=actualByMallMonth[mall]||{};
+    const t=targets[mall]||{},a=byMallMonth[mall]||{};
     const annT=months.reduce((s,m)=>s+(t[String(m)]||0),0);
     const annA=months.reduce((s,m)=>s+(a[m]||0),0);
     const annR=annT>0?annA/annT*100:0;
-    html+=`<div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    det+=`<div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--bd)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
         <span style="font-weight:600;color:${MALL_COLORS[mall]||'var(--tx)'}">${mall}</span>
-        <span style="font-size:11px;color:var(--tx2)">年間 ${annA.toFixed(1)}万 / 目標 ${annT.toFixed(0)}万 (${annR.toFixed(1)}%)</span>
+        <span style="font-size:11px;color:var(--tx2)">年間 ${annA.toFixed(1)}万 / 目標 ${annT.toFixed(0)}万</span>
       </div>
       <div class="tbl-wrap"><table style="font-size:11px">
         <thead><tr><th>　</th>${months.map(m=>`<th class="num">${m}月</th>`).join('')}</tr></thead>
         <tbody>
           <tr><td style="color:var(--tx2)">目標</td>${months.map(m=>`<td class="num">${t[m]||'-'}</td>`).join('')}</tr>
           <tr><td style="color:var(--tx2)">実績</td>${months.map(m=>`<td class="num">${a[m]?a[m].toFixed(1):'-'}</td>`).join('')}</tr>
-          <tr><td style="color:var(--tx2)">達成率</td>${months.map(m=>{
-            const tv=t[m]||0,av=a[m]||0;
-            if(!tv) return '<td class="num">-</td>';
-            const r=av/tv*100,c=r>=100?'var(--ac2)':r>=80?'#f5a623':'#ff6b6b';
-            return`<td class="num" style="color:${c}">${r.toFixed(0)}%</td>`;
-          }).join('')}</tr>
+          <tr><td style="color:var(--tx2)">達成率</td>${months.map(m=>{const tv=t[m]||0,av=a[m]||0;if(!tv)return'<td class="num">-</td>';const r=av/tv*100,c=r>=100?'var(--ac2)':r>=80?'#f5a623':'#ff6b6b';return`<td class="num" style="color:${c}">${r.toFixed(0)}%</td>`;}).join('')}</tr>
         </tbody>
       </table></div>
-      <div class="pbar" style="margin-top:8px"><div class="pfill" style="width:${Math.min(annR,100)}%;background:${annR>=100?'var(--ac2)':annR>=80?'#f5a623':'var(--ac)'}"></div></div>
+      <div class="pbar" style="margin-top:6px"><div class="pfill" style="width:${Math.min(annR,100)}%;background:${annR>=100?'var(--ac2)':annR>=80?'#f5a623':'var(--ac)'}"></div></div>
       <div style="font-size:10px;color:var(--tx3);margin-top:3px">年間達成率 ${annR.toFixed(1)}%</div>
     </div>`;
   });
-  document.getElementById('pane-budget').innerHTML=html;
+  const d=document.getElementById('bg-mall-detail');
+  if(d) d.innerHTML=det;
 }
 
 // ═══════════════════════════════════════════
