@@ -804,13 +804,13 @@ const BRAND_COLORS={
   'Emery Emily':'#f87171','GOGO TALES':'#facc15','COLORROSE':'#e879f9',
   'FOCALLURE':'#2dd4bf','LTLYL':'#fb7185'
 };
-let bgSelectedMonth=null;
+let bgSelectedMonth=null, bgOpenMall=null;
 
 function getBudgetBase(){
   const months=[1,2,3,4,5,6,7,8,9,10,11,12];
   const mallOrder=['★自社国内EC','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','yahoo','LINE GIFT','TANP','メルカリ'];
   const targets=DATA.targets;
-  const byMallMonth={}, byBrandMonth={};
+  const byMallMonth={}, byBrandMonth={}, byMallDay={};
   DATA.monthly_product.forEach(r=>{
     const m=r['モール'],mo=r.month,b=r['ブランド正規化'],v=r['売上高万'];
     if(!byMallMonth[m]) byMallMonth[m]={};
@@ -818,15 +818,23 @@ function getBudgetBase(){
     if(!byBrandMonth[mo]) byBrandMonth[mo]={};
     byBrandMonth[mo][b]=(byBrandMonth[mo][b]||0)+v;
   });
-  return{months,mallOrder,targets,byMallMonth,byBrandMonth};
+  // Daily by mall from DATA.daily
+  Object.entries(DATA.daily).forEach(([d,vals])=>{
+    Object.entries(vals.amount||{}).forEach(([m,v])=>{
+      if(!byMallDay[m]) byMallDay[m]={};
+      byMallDay[m][d]=v;
+    });
+  });
+  return{months,mallOrder,targets,byMallMonth,byBrandMonth,byMallDay};
 }
 
 function renderBudget(){
   if(!DATA)return;
-  const{months,mallOrder,targets,byMallMonth,byBrandMonth}=getBudgetBase();
+  const{months,mallOrder,targets,byMallMonth,byBrandMonth,byMallDay}=getBudgetBase();
   const availMonths=[...new Set(DATA.monthly_product.map(r=>r.month))].sort((a,b)=>a-b);
   if(!bgSelectedMonth||!availMonths.includes(bgSelectedMonth)) bgSelectedMonth=availMonths[availMonths.length-1]||3;
 
+  // Destroy old charts
   Object.keys(charts).filter(k=>k.startsWith('bg-')).forEach(k=>{if(charts[k]){charts[k].destroy();delete charts[k];}});
 
   // 総合集計
@@ -838,6 +846,7 @@ function renderBudget(){
 
   const pane=document.getElementById('pane-budget');
   pane.innerHTML=`
+  <!-- ① 総合サマリー -->
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <span style="font-size:15px;font-weight:700">📦 全モール合計</span>
@@ -855,6 +864,13 @@ function renderBudget(){
     </table></div>
   </div>
 
+  <!-- ② モール別詳細（アコーディオン） -->
+  <div class="card">
+    <div class="card-title">モール別詳細</div>
+    <div id="bg-mall-accordion"></div>
+  </div>
+
+  <!-- ③ グラフ群 -->
   <div class="card">
     <div class="card-title">月次内訳グラフ</div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
@@ -875,12 +891,10 @@ function renderBudget(){
     <div style="margin-bottom:20px"><canvas id="bg-bar-brand" style="max-height:180px"></canvas></div>
     <div style="font-size:11px;color:var(--tx2);margin-bottom:6px">月次モール割合推移</div>
     <canvas id="bg-bar-mall" style="max-height:180px"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="card-title">モール別詳細</div>
-    <div id="bg-mall-detail"></div>
   </div>`;
+
+  // アコーディオン構築
+  buildMallAccordion(mallOrder,targets,byMallMonth,byMallDay,months,availMonths);
 
   // 円グラフ：ブランド別
   const brandData=byBrandMonth[bgSelectedMonth]||{};
@@ -917,33 +931,182 @@ function renderBudget(){
   })).filter(ds=>ds.data.some(v=>v>0));
   const ctxBM=document.getElementById('bg-bar-mall');
   if(ctxBM) charts['bg-bar-mall']=new Chart(ctxBM,{type:'bar',data:{labels:availMonths.map(m=>m+'月'),datasets:mallBarDS},options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{labels:{color:'#8b8fa8',boxWidth:8,font:{size:10}}}},scales:{x:{stacked:true,ticks:{color:'#5a5f7d',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},y:{stacked:true,max:100,ticks:{color:'#5a5f7d',font:{size:10},callback:v=>v+'%'},grid:{color:'rgba(255,255,255,.06)'}}}}});
+}
 
-  // モール別詳細
-  let det='';
+function buildMallAccordion(mallOrder,targets,byMallMonth,byMallDay,months,availMonths){
+  const wrap=document.getElementById('bg-mall-accordion');
+  if(!wrap)return;
+
+  let html='';
   mallOrder.forEach(mall=>{
-    const t=targets[mall]||{},a=byMallMonth[mall]||{};
+    const t=targets[mall]||{}, a=byMallMonth[mall]||{};
     const annT=months.reduce((s,m)=>s+(t[String(m)]||0),0);
     const annA=months.reduce((s,m)=>s+(a[m]||0),0);
     const annR=annT>0?annA/annT*100:0;
-    det+=`<div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--bd)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
-        <span style="font-weight:600;color:${MALL_COLORS[mall]||'var(--tx)'}">${mall}</span>
-        <span style="font-size:11px;color:var(--tx2)">年間 ${annA.toFixed(1)}万 / 目標 ${annT.toFixed(0)}万</span>
+    const isOpen=bgOpenMall===mall;
+    const color=MALL_COLORS[mall]||'var(--tx)';
+    const rateColor=annR>=100?'var(--ac2)':annR>=80?'#f5a623':'#ff6b6b';
+
+    html+=`
+    <div style="border-bottom:1px solid var(--bd);last-child:border-none">
+      <!-- アコーディオンヘッダー -->
+      <div onclick="toggleMallAccordion('${mall}')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 4px;cursor:pointer;user-select:none" onmouseenter="this.style.background='rgba(92,115,242,.05)'" onmouseleave="this.style.background='transparent'">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:12px;color:var(--tx3);width:14px;text-align:center">${isOpen?'▾':'▸'}</span>
+          <span style="font-weight:600;color:${color}">${mall}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px">
+          <div style="width:100px">
+            <div class="pbar" style="margin:0"><div class="pfill" style="width:${Math.min(annR,100)}%;background:${rateColor}"></div></div>
+          </div>
+          <span style="font-size:12px;color:${rateColor};min-width:42px;text-align:right">${annR.toFixed(1)}%</span>
+          <span style="font-size:11px;color:var(--tx2);min-width:120px;text-align:right">${annA.toFixed(1)}万 / ${annT.toFixed(0)}万</span>
+        </div>
       </div>
-      <div class="tbl-wrap"><table style="font-size:11px">
-        <thead><tr><th>　</th>${months.map(m=>`<th class="num">${m}月</th>`).join('')}</tr></thead>
-        <tbody>
-          <tr><td style="color:var(--tx2)">目標</td>${months.map(m=>`<td class="num">${t[m]||'-'}</td>`).join('')}</tr>
-          <tr><td style="color:var(--tx2)">実績</td>${months.map(m=>`<td class="num">${a[m]?a[m].toFixed(1):'-'}</td>`).join('')}</tr>
-          <tr><td style="color:var(--tx2)">達成率</td>${months.map(m=>{const tv=t[m]||0,av=a[m]||0;if(!tv)return'<td class="num">-</td>';const r=av/tv*100,c=r>=100?'var(--ac2)':r>=80?'#f5a623':'#ff6b6b';return`<td class="num" style="color:${c}">${r.toFixed(0)}%</td>`;}).join('')}</tr>
-        </tbody>
-      </table></div>
-      <div class="pbar" style="margin-top:6px"><div class="pfill" style="width:${Math.min(annR,100)}%;background:${annR>=100?'var(--ac2)':annR>=80?'#f5a623':'var(--ac)'}"></div></div>
-      <div style="font-size:10px;color:var(--tx3);margin-top:3px">年間達成率 ${annR.toFixed(1)}%</div>
+      <!-- アコーディオン中身 -->
+      <div id="mall-detail-${mall.replace(/[^a-zA-Z0-9]/g,'_')}" style="display:${isOpen?'block':'none'};padding:0 4px 16px 26px">
+        <!-- 月次テーブル -->
+        <div class="tbl-wrap" style="margin-bottom:16px"><table style="font-size:11px">
+          <thead><tr><th>　</th>${months.map(m=>`<th class="num">${m}月</th>`).join('')}</tr></thead>
+          <tbody>
+            <tr><td style="color:var(--tx2)">目標</td>${months.map(m=>`<td class="num">${t[m]||'-'}</td>`).join('')}</tr>
+            <tr><td style="color:var(--tx2)">実績</td>${months.map(m=>`<td class="num">${a[m]?a[m].toFixed(1):'-'}</td>`).join('')}</tr>
+            <tr><td style="color:var(--tx2)">達成率</td>${months.map(m=>{const tv=t[m]||0,av=a[m]||0;if(!tv)return'<td class="num">-</td>';const r=av/tv*100,c=r>=100?'var(--ac2)':r>=80?'#f5a623':'#ff6b6b';return`<td class="num" style="color:${c}">${r.toFixed(0)}%</td>`;}).join('')}</tr>
+          </tbody>
+        </table></div>
+        <!-- 日次折れ線グラフ -->
+        <div style="font-size:11px;color:var(--tx2);margin-bottom:6px">日次売上推移（万円）</div>
+        <div style="position:relative;height:180px"><canvas id="bg-line-${mall.replace(/[^a-zA-Z0-9]/g,'_')}"></canvas></div>
+        <!-- セール凡例 -->
+        <div id="bg-sale-legend-${mall.replace(/[^a-zA-Z0-9]/g,'_')}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
     </div>`;
   });
-  const d=document.getElementById('bg-mall-detail');
-  if(d) d.innerHTML=det;
+  wrap.innerHTML=html;
+
+  // 開いているモールのグラフを描画
+  if(bgOpenMall) renderMallLineChart(bgOpenMall,byMallDay);
+}
+
+function toggleMallAccordion(mall){
+  const id='mall-detail-'+mall.replace(/[^a-zA-Z0-9]/g,'_');
+  const el=document.getElementById(id);
+  if(!el)return;
+  if(bgOpenMall===mall){
+    // 閉じる
+    el.style.display='none';
+    bgOpenMall=null;
+    // ヘッダーの矢印更新
+    document.querySelectorAll('#bg-mall-accordion [onclick]').forEach(h=>{
+      if(h.getAttribute('onclick')===`toggleMallAccordion('${mall}')`){
+        h.querySelector('span:first-child').textContent='▸';
+      }
+    });
+  } else {
+    // 前のを閉じる
+    if(bgOpenMall){
+      const prevId='mall-detail-'+bgOpenMall.replace(/[^a-zA-Z0-9]/g,'_');
+      const prev=document.getElementById(prevId);
+      if(prev) prev.style.display='none';
+      // 前の矢印を戻す
+      document.querySelectorAll('#bg-mall-accordion [onclick]').forEach(h=>{
+        if(h.getAttribute('onclick')===`toggleMallAccordion('${bgOpenMall}')`){
+          h.querySelector('span:first-child').textContent='▸';
+        }
+      });
+      // 前のチャートを削除
+      const prevChartKey='bg-line-'+bgOpenMall.replace(/[^a-zA-Z0-9]/g,'_');
+      if(charts[prevChartKey]){charts[prevChartKey].destroy();delete charts[prevChartKey];}
+    }
+    bgOpenMall=mall;
+    el.style.display='block';
+    // 矢印更新
+    document.querySelectorAll('#bg-mall-accordion [onclick]').forEach(h=>{
+      if(h.getAttribute('onclick')===`toggleMallAccordion('${mall}')`){
+        h.querySelector('span:first-child').textContent='▾';
+      }
+    });
+    // データ取得して描画
+    const{byMallDay}=getBudgetBase();
+    renderMallLineChart(mall,byMallDay);
+  }
+}
+
+function renderMallLineChart(mall,byMallDay){
+  const safeId=mall.replace(/[^a-zA-Z0-9]/g,'_');
+  const chartKey='bg-line-'+safeId;
+  const ctx=document.getElementById('bg-line-'+safeId);
+  if(!ctx)return;
+  if(charts[chartKey]){charts[chartKey].destroy();delete charts[chartKey];}
+
+  const dayData=byMallDay[mall]||{};
+  const dates=Object.keys(dayData).sort();
+  if(!dates.length){ctx.parentElement.innerHTML='<div class="no-data">日次データがありません</div>';return;}
+
+  const vals=dates.map(d=>dayData[d]||0);
+
+  // セール期間の背景注釈
+  const mallSales=SALES.filter(s=>s.mall===mall);
+  const annotations={};
+  mallSales.forEach((s,i)=>{
+    annotations['sale'+i]={
+      type:'box',
+      xMin:s.start,xMax:s.end,
+      backgroundColor:MALL_COLORS[mall]+'22',
+      borderColor:MALL_COLORS[mall]+'88',
+      borderWidth:1,
+      label:{display:true,content:s.name.replace(mall+' ',''),color:MALL_COLORS[mall]||'#aaa',font:{size:9},position:{x:'center',y:'start'}}
+    };
+  });
+
+  charts[chartKey]=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:dates,
+      datasets:[{
+        label:mall,
+        data:vals,
+        borderColor:MALL_COLORS[mall]||'#5c73f2',
+        backgroundColor:(MALL_COLORS[mall]||'#5c73f2')+'22',
+        borderWidth:2,
+        pointRadius:3,
+        pointHoverRadius:5,
+        fill:true,
+        tension:0.3
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          callbacks:{
+            label:ctx=>`${ctx.parsed.y.toFixed(2)}万円`,
+            afterLabel:ctx=>{
+              const d=dates[ctx.dataIndex];
+              const sales=SALES.filter(s=>s.mall===mall&&d>=s.start&&d<=s.end);
+              return sales.length?'🏷️ '+sales.map(s=>s.name).join(' / '):'';
+            }
+          }
+        }
+      },
+      scales:{
+        x:{ticks:{color:'#5a5f7d',font:{size:9},maxTicksLimit:15},grid:{color:'rgba(255,255,255,.04)'}},
+        y:{ticks:{color:'#5a5f7d',font:{size:10},callback:v=>v+'万'},grid:{color:'rgba(255,255,255,.06)'}}
+      }
+    }
+  });
+
+  // セール凡例
+  const legendEl=document.getElementById('bg-sale-legend-'+safeId);
+  if(legendEl&&mallSales.length){
+    legendEl.innerHTML=mallSales.map(s=>
+      `<span style="font-size:10px;padding:2px 7px;border-radius:3px;background:${MALL_COLORS[mall]||'#555'}20;color:${MALL_COLORS[mall]||'#aaa'};border:1px solid ${MALL_COLORS[mall]||'#555'}50">🏷️ ${s.name}: ${s.start}〜${s.end}</span>`
+    ).join('');
+  } else if(legendEl){
+    legendEl.innerHTML='<span style="font-size:10px;color:var(--tx3)">この期間のセールデータなし</span>';
+  }
 }
 
 // ═══════════════════════════════════════════
