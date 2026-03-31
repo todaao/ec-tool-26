@@ -133,7 +133,7 @@ select.filter-sel{padding:5px 10px;background:var(--sf2);border:1px solid var(--
 const DATA_URL='ec_data.json';
 const MALL_COLORS={'1.Amazon':'#ff9900','2.Qoo10':'#e31837','3.楽天':'#bf0000','ZOZO':'#aaa','4.TikTokShop':'#69c9d0','★自社国内EC':'#6c63ff','yahoo':'#6001d2','LINE GIFT':'#00b900','TANP':'#ff6b35','メルカリ':'#ff4747'};
 const MALL_SHORT={'1.Amazon':'AM','2.Qoo10':'Q10','3.楽天':'RA','ZOZO':'ZZ','4.TikTokShop':'TT','★自社国内EC':'自社','yahoo':'YA','LINE GIFT':'LG','TANP':'TP','メルカリ':'MC'};
-const ALL_MALLS=['1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','★自社国内EC','yahoo','LINE GIFT','TANP','メルカリ'];
+const ALL_MALLS=['★自社国内EC','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','yahoo','LINE GIFT','TANP','メルカリ'];
 const SALES=[
   {name:'Amazon 第1回スマイルSALE',mall:'1.Amazon',start:'2026-01-03',end:'2026-01-07'},
   {name:'Amazon 第2回スマイルSALE',mall:'1.Amazon',start:'2026-01-27',end:'2026-02-02'},
@@ -271,6 +271,14 @@ function renderPivot(){
 function renderPivotTable(){
   const wrap=document.getElementById('pivot-wrap');
   if(!wrap)return;
+  // ボタン状態を即座に同期
+  document.querySelectorAll('#pane-pivot .btn').forEach(b=>{
+    const oc=b.getAttribute('onclick')||'';
+    if(oc.includes("pvAxis='brand'")) b.className='btn '+(pvAxis==='brand'?'active':'');
+    else if(oc.includes("pvAxis='mall'")) b.className='btn '+(pvAxis==='mall'?'active':'');
+    else if(oc.includes("pvMetric='amount'")) b.className='btn '+(pvMetric==='amount'?'active':'');
+    else if(oc.includes("pvMetric='qty'")) b.className='btn '+(pvMetric==='qty'?'active':'');
+  });
 
   // Build time structure from data
   // months → weeks → days  (横軸)
@@ -434,14 +442,13 @@ function renderDaily(){
 }
 
 function renderDailyContent(){
-  // Update btn states
-  ['mall','brand'].forEach(v=>{
-    const b=document.querySelector(`#pane-daily .btn[onclick*="dailyView='${v}'"]`);
-    if(b) b.className='btn '+(dailyView===v?'active':'');
-  });
-  ['amount','qty'].forEach(v=>{
-    const b=document.querySelector(`#pane-daily .btn[onclick*="pvMetric='${v}'"]`);
-    if(b) b.className='btn '+(pvMetric===v?'active':'');
+  // Update btn states - use querySelectorAll for reliability
+  document.querySelectorAll('#pane-daily .btn').forEach(b=>{
+    const oc=b.getAttribute('onclick')||'';
+    if(oc.includes("dailyView='mall'")) b.className='btn '+(dailyView==='mall'?'active':'');
+    else if(oc.includes("dailyView='brand'")) b.className='btn '+(dailyView==='brand'?'active':'');
+    else if(oc.includes("pvMetric='amount'")) b.className='btn '+(pvMetric==='amount'?'active':'');
+    else if(oc.includes("pvMetric='qty'")) b.className='btn '+(pvMetric==='qty'?'active':'');
   });
 
   const dates=dateRange(dailyStart,dailyEnd).filter(d=>DATA.daily[d]);
@@ -594,8 +601,9 @@ function buildMallChgTbl(list){
 
 function renderChangeProd(cur,prev){
   // Update mall filter btns
-  document.querySelectorAll('#chg-body .btn-group:last-of-type .btn').forEach(b=>{
-    const m=b.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+  document.querySelectorAll('#chg-body .btn').forEach(b=>{
+    const oc=b.getAttribute('onclick')||'';
+    const m=oc.match(/chgMall='([^']+)'/)?.[1];
     if(m!==undefined) b.className='btn '+(chgMall===m?'active':'');
   });
   const src=chgPeriod==='weekly'?DATA.weekly_product:DATA.monthly_product;
