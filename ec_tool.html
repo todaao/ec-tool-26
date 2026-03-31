@@ -87,6 +87,11 @@ tr:hover td{background:rgba(92,115,242,.05)}
 canvas{max-height:300px}
 .rank-num{font-size:11px;font-weight:800;color:var(--tx3);width:20px;text-align:center;display:inline-block}
 .rank-num.top3{color:var(--ac)}
+.btn-csv{padding:5px 12px;border:1px solid var(--ac2);background:transparent;color:var(--ac2);border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s}
+.btn-csv:hover{background:var(--ac2);color:#000}
+.sort-th{cursor:pointer;white-space:nowrap;user-select:none}
+.sort-th:hover{color:var(--tx)}
+select.filter-sel{padding:5px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:12px;font-family:inherit}
 </style>
 </head>
 <body>
@@ -422,6 +427,7 @@ function renderDaily(){
         </div>
       </div>
       <div class="chart-wrap" style="margin-bottom:20px"><canvas id="chart-daily"></canvas></div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn-csv" onclick="exportDailyCSV()">⬇ CSV出力</button></div>
       <div class="tbl-wrap"><table id="daily-tbl"></table></div>
     </div>`;
   renderDailyContent();
@@ -572,6 +578,7 @@ function renderChangeBody(){
     </div>
     <div style="margin-bottom:8px;font-size:12px;font-weight:600">商品変化分析（TOP20）</div>
     <div class="btn-group">${mallBtns}</div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn-csv" onclick="exportChangeCSV()">⬇ CSV出力</button></div>
     <div class="row" id="chg-prod-row">
       <div class="col"><div style="font-size:11px;color:var(--tx2);margin-bottom:6px">📈 伸びた商品</div><div id="chg-top"></div></div>
       <div class="col"><div style="font-size:11px;color:var(--tx2);margin-bottom:6px">📉 落ちた商品</div><div id="chg-bot"></div></div>
@@ -683,10 +690,12 @@ function renderRankBody(){
   const sortBtn=(label,val)=>`<button class="btn ${rkSort===val?'active':''}" style="font-size:11px;padding:4px 10px" onclick="rkSort='${val}';renderRankBody()">${label}</button>`;
 
   body.innerHTML=`
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <span style="font-size:11px;color:var(--tx2)">並べ替え：</span>
       ${sortBtn('売上高順','amount')}
       ${sortBtn('数量順','qty')}
+      <span style="flex:1"></span>
+      <button class="btn-csv" onclick="exportRankingCSV()">⬇ CSV出力</button>
     </div>
     <table>
       <thead><tr>
@@ -1135,32 +1144,127 @@ function renderMallLineChart(mall,byMallDay){
 // ═══════════════════════════════════════════
 // ANOMALY DETECTION
 // ═══════════════════════════════════════════
+let anSortCol='date', anSortDir=-1, anFilterType='all', anFilterBrand='all', anFilterMin='', anFilterMax='';
+const AN_TYPE_COLORS={'継続急増':'#3dd68c','一日スパイク':'#f5a623','在庫切れ候補':'#ff6b6b','全体異常':'#5c73f2','全体低迷':'#aaa'};
+
 function renderAnomaly(){
   if(!DATA)return;
   const an=DATA.anomalies||[];
-  const typeColors={'継続急増':'#3dd68c','一日スパイク':'#f5a623','在庫切れ候補':'#ff6b6b','全体異常':'#5c73f2','全体低迷':'#aaa'};
-  const types=['継続急増','一日スパイク','在庫切れ候補','全体異常','全体低迷'];
   const pane=document.getElementById('pane-anomaly');
-  if(!an.length){pane.innerHTML='<div class="card"><div class="no-data">異常値は検出されませんでした（データ量が増えると精度が上がります）</div></div>';return;}
 
-  let html=`<div class="card">
-    <div class="card-title">異常検知 - ${an.length}件検出</div>
-    <div style="font-size:11px;color:var(--tx3);margin-bottom:12px">z≥3.0：急増　z≤-2.0：急減　データが蓄積されると精度が向上します</div>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>種別</th><th>日付</th><th>商品名</th><th>ブランド</th><th class="num">売上高</th><th class="num">z値</th><th>仮説</th></tr></thead>
-      <tbody>${an.map(r=>`<tr>
-        <td><span class="atype" style="background:${typeColors[r.type]||'#555'}30;color:${typeColors[r.type]||'#aaa'}">${r.icon} ${r.type}</span></td>
-        <td style="font-size:11px">${r.date}</td>
-        <td style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis">${r.product}</td>
-        <td style="font-size:11px;color:var(--tx2)">${r.brand}</td>
-        <td class="num">${r.amount_man}万</td>
-        <td class="num ${r.z>=0?'pos':'neg'}">${r.z>0?'+':''}${r.z}</td>
-        <td style="font-size:11px;color:var(--tx2);max-width:200px">${r.hypothesis}</td>
-      </tr>`).join('')}
-      </tbody>
-    </table></div>
+  if(!an.length){
+    pane.innerHTML='<div class="card"><div class="no-data">異常値は検出されませんでした（データ量が増えると精度が上がります）</div></div>';
+    return;
+  }
+
+  const allBrands=[...new Set(an.map(r=>r.brand))].sort();
+  const allTypes=[...new Set(an.map(r=>r.type))];
+
+  pane.innerHTML=`
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      <div class="card-title" style="margin:0">🔍 異常検知</div>
+      <button class="btn-csv" onclick="exportAnomalyCSV()">⬇ CSV出力</button>
+    </div>
+    <div style="font-size:11px;color:var(--tx3);margin-bottom:12px">📈 継続急増 z≥3.0　⚡ 一日スパイク z≥3.0　📉 在庫切れ候補 z≤-2.0　データが蓄積されると精度が向上します</div>
+
+    <!-- フィルター行 -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 12px;background:var(--sf2);border-radius:var(--r)">
+      <span style="font-size:11px;color:var(--tx2)">絞り込み：</span>
+
+      <select class="filter-sel" onchange="anFilterType=this.value;renderAnomalyTable()">
+        <option value="all">種別：全て</option>
+        ${allTypes.map(t=>`<option value="${t}" ${anFilterType===t?'selected':''}>${t}</option>`).join('')}
+      </select>
+
+      <select class="filter-sel" onchange="anFilterBrand=this.value;renderAnomalyTable()">
+        <option value="all">ブランド：全て</option>
+        ${allBrands.map(b=>`<option value="${b}" ${anFilterBrand===b?'selected':''}>${b}</option>`).join('')}
+      </select>
+
+      <span style="font-size:11px;color:var(--tx2);margin-left:4px">売上高(万)：</span>
+      <input type="number" step="0.1" placeholder="下限" value="${anFilterMin}"
+        style="width:70px;padding:5px 8px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:12px"
+        onchange="anFilterMin=this.value;renderAnomalyTable()">
+      <span style="color:var(--tx3)">〜</span>
+      <input type="number" step="0.1" placeholder="上限" value="${anFilterMax}"
+        style="width:70px;padding:5px 8px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:12px"
+        onchange="anFilterMax=this.value;renderAnomalyTable()">
+
+      <button class="btn" style="font-size:11px;padding:4px 10px" onclick="anFilterType='all';anFilterBrand='all';anFilterMin='';anFilterMax='';renderAnomaly()">リセット</button>
+      <span id="an-count" style="font-size:11px;color:var(--tx3);margin-left:4px"></span>
+    </div>
+
+    <!-- テーブル -->
+    <div class="tbl-wrap">
+      <table id="anomaly-tbl">
+        <thead>
+          <tr>
+            <th class="sort-th" onclick="anSort('type')">種別${anSortCol==='type'?anSortDir>0?'▴':'▾':''}</th>
+            <th class="sort-th" onclick="anSort('date')">日付${anSortCol==='date'?anSortDir>0?'▴':'▾':''}</th>
+            <th class="sort-th" onclick="anSort('product')">商品名${anSortCol==='product'?anSortDir>0?'▴':'▾':''}</th>
+            <th class="sort-th" onclick="anSort('brand')">ブランド${anSortCol==='brand'?anSortDir>0?'▴':'▾':''}</th>
+            <th class="sort-th num" onclick="anSort('amount_man')">売上高${anSortCol==='amount_man'?anSortDir>0?'▴':'▾':''}</th>
+            <th class="sort-th num" onclick="anSort('z')">z値${anSortCol==='z'?anSortDir>0?'▴':'▾':''}</th>
+            <th>仮説</th>
+          </tr>
+        </thead>
+        <tbody id="anomaly-tbody"></tbody>
+      </table>
+    </div>
   </div>`;
-  pane.innerHTML=html;
+
+  renderAnomalyTable();
+}
+
+function anSort(col){
+  if(anSortCol===col) anSortDir*=-1;
+  else{anSortCol=col;anSortDir=-1;}
+  renderAnomalyTable();
+  // Update header arrows
+  document.querySelectorAll('#anomaly-tbl .sort-th').forEach(th=>{
+    const cols={'種別':'type','日付':'date','商品名':'product','ブランド':'brand','売上高':'amount_man','z値':'z'};
+    const key=Object.entries(cols).find(([k])=>th.textContent.startsWith(k))?.[1];
+    if(key) th.textContent=th.textContent.replace(/[▴▾]/g,'')+(anSortCol===key?(anSortDir>0?'▴':'▾'):'');
+  });
+}
+
+function renderAnomalyTable(){
+  let rows=DATA.anomalies||[];
+
+  // フィルタ
+  if(anFilterType!=='all') rows=rows.filter(r=>r.type===anFilterType);
+  if(anFilterBrand!=='all') rows=rows.filter(r=>r.brand===anFilterBrand);
+  if(anFilterMin!=='') rows=rows.filter(r=>r.amount_man>=parseFloat(anFilterMin));
+  if(anFilterMax!=='') rows=rows.filter(r=>r.amount_man<=parseFloat(anFilterMax));
+
+  // ソート
+  rows=[...rows].sort((a,b)=>{
+    let va=a[anSortCol], vb=b[anSortCol];
+    if(typeof va==='string') return anSortDir*(va.localeCompare(vb,'ja'));
+    return anSortDir*(va-vb);
+  });
+
+  const cnt=document.getElementById('an-count');
+  if(cnt) cnt.textContent=`${rows.length}件表示`;
+
+  const tbody=document.getElementById('anomaly-tbody');
+  if(!tbody)return;
+
+  if(!rows.length){
+    tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--tx3)">条件に一致するデータがありません</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML=rows.map(r=>`<tr>
+    <td><span class="atype" style="background:${AN_TYPE_COLORS[r.type]||'#555'}28;color:${AN_TYPE_COLORS[r.type]||'#aaa'};padding:2px 8px;border-radius:4px;font-size:11px;white-space:nowrap">${r.icon} ${r.type}</span></td>
+    <td style="font-size:11px;white-space:nowrap">${r.date}</td>
+    <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${r.product}">${r.product}</td>
+    <td style="font-size:11px;color:var(--tx2);white-space:nowrap">${r.brand}</td>
+    <td class="num" style="font-weight:${Math.abs(r.z)>=3?'600':'400'}">${r.amount_man}万</td>
+    <td class="num ${r.z>=0?'pos':'neg'}" style="font-weight:600">${r.z>0?'+':''}${r.z}</td>
+    <td style="font-size:11px;color:var(--tx2);max-width:220px">${r.hypothesis}</td>
+  </tr>`).join('');
 }
 
 // ═══════════════════════════════════════════
@@ -1201,6 +1305,76 @@ async function changePw(){
   if(nw!==conf){msg.textContent='新しいパスワードが一致しません';msg.className='msg err';msg.style.display='block';return;}
   localStorage.setItem('ec_pw_hash',await sha256(nw));
   msg.textContent='パスワードを変更しました';msg.className='msg ok';msg.style.display='block';
+}
+
+// ─── CSV EXPORT ───
+function downloadCSV(rows, filename){
+  const bom='﻿';
+  const csv=bom+rows.map(r=>r.map(v=>{
+    const s=String(v==null?'':v);
+    return s.includes(',')||s.includes('"')||s.includes('
+')?'"'+s.replace(/"/g,'""')+'"':s;
+  }).join(',')).join('
+');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download=filename;a.click();URL.revokeObjectURL(a.href);
+}
+
+function exportDailyCSV(){
+  const tbl=document.getElementById('daily-tbl');
+  if(!tbl)return;
+  const rows=[];
+  tbl.querySelectorAll('tr').forEach(tr=>{
+    const cells=[...tr.querySelectorAll('th,td')].map(td=>{
+      // セールアイコン列はテキストのみ抽出
+      const icons=td.querySelectorAll('.mi');
+      if(icons.length) return [...icons].map(i=>i.title||i.textContent).join('/');
+      return td.textContent.trim();
+    });
+    if(cells.some(c=>c)) rows.push(cells);
+  });
+  downloadCSV(rows,'日次分析_'+new Date().toLocaleDateString('ja')+'.csv');
+}
+
+function exportChangeCSV(){
+  const rows=[['区分','商品名','前期(万)','今期(万)','変化率(%)']];
+  ['chg-top','chg-bot'].forEach((id,idx)=>{
+    const tbl=document.getElementById(id)?.querySelector('table');
+    if(!tbl)return;
+    const label=idx===0?'📈伸びた':'📉落ちた';
+    tbl.querySelectorAll('tbody tr').forEach(tr=>{
+      const tds=[...tr.querySelectorAll('td')].map(td=>td.textContent.trim());
+      rows.push([label,...tds]);
+    });
+  });
+  downloadCSV(rows,'変化分析_'+new Date().toLocaleDateString('ja')+'.csv');
+}
+
+function exportRankingCSV(){
+  const body=document.getElementById('rk-body');
+  if(!body)return;
+  const rows=[['順位','ブランド','商品名','SKU(型番)','売上高(万)','数量(個)','取扱モール']];
+  body.querySelectorAll('tbody tr').forEach(tr=>{
+    const tds=[...tr.querySelectorAll('td')].map((td,i)=>{
+      if(i===0) return td.querySelector('.rank-num')?.textContent.trim()||'';
+      const icons=td.querySelectorAll('.mi');
+      if(icons.length) return [...icons].map(ic=>ic.title||ic.textContent).join('/');
+      return td.textContent.trim();
+    });
+    rows.push(tds);
+  });
+  downloadCSV(rows,'売れ筋_'+new Date().toLocaleDateString('ja')+'.csv');
+}
+
+// 異常検知CSV（フィルタ済みデータから）
+function exportAnomalyCSV(){
+  const rows=[['種別','日付','商品名','ブランド','売上高(万)','z値','仮説']];
+  document.querySelectorAll('#anomaly-tbl tbody tr').forEach(tr=>{
+    const tds=[...tr.querySelectorAll('td')].map(td=>td.textContent.trim());
+    if(tds.length) rows.push(tds);
+  });
+  downloadCSV(rows,'異常検知_'+new Date().toLocaleDateString('ja')+'.csv');
 }
 
 // ─── INIT ───
