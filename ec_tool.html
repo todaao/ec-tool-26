@@ -1309,13 +1309,12 @@ async function changePw(){
 
 // ─── CSV EXPORT ───
 function downloadCSV(rows, filename){
-  const bom='﻿';
+  const bom='\uFEFF';
+  const NL='\n';
   const csv=bom+rows.map(r=>r.map(v=>{
     const s=String(v==null?'':v);
-    return s.includes(',')||s.includes('"')||s.includes('
-')?'"'+s.replace(/"/g,'""')+'"':s;
-  }).join(',')).join('
-');
+    return (s.includes(',')||s.includes('"')||s.includes(NL))?'"'+s.replace(/"/g,'""')+'"':s;
+  }).join(',')).join(NL);
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
   a.download=filename;a.click();URL.revokeObjectURL(a.href);
