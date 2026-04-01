@@ -662,10 +662,12 @@ let rkMall='all', rkSort='amount', rkStart='', rkEnd='';
 
 function renderRanking(){
   if(!DATA)return;
-  // Init date range from available data
-  const dates=Object.keys(DATA.daily).sort();
-  if(!rkStart) rkStart=dates[0]||'';
-  if(!rkEnd)   rkEnd=dates[dates.length-1]||'';
+  // Init date range from available week_end values in brand_pivot
+  if(!rkStart||!rkEnd){
+    const weeks=DATA.brand_pivot.map(r=>r.week_end).filter(Boolean).sort();
+    if(!rkStart) rkStart=weeks[0]||Object.keys(DATA.daily).sort()[0]||'';
+    if(!rkEnd)   rkEnd=weeks[weeks.length-1]||Object.keys(DATA.daily).sort().slice(-1)[0]||'';
+  }
 
   const mallOpts=['all','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','★自社国内EC','yahoo','LINE GIFT','TANP','メルカリ'];
 
@@ -700,7 +702,8 @@ function renderRankBody(){
   });
 
   // Filter brand_pivot by date range and mall
-  let rows=DATA.brand_pivot.filter(r=>r.date_str>=rkStart&&r.date_str<=rkEnd);
+  // brand_pivot has week_end (not date_str); include weeks that overlap the selected range
+  let rows=DATA.brand_pivot.filter(r=>r.week_end>=rkStart&&r.week_end<=rkEnd);
   if(rkMall!=='all') rows=rows.filter(r=>r['モール']===rkMall);
 
   // Aggregate by 商品名＋型番（SKU単位）＋ブランド
