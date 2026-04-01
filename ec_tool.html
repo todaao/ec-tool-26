@@ -241,7 +241,8 @@ function decompactData(d){
   ['brand_pivot','mall_pivot','weekly_product','monthly_product'].forEach(k=>{
     d[k].forEach(r=>{
       if(!('year' in r)){
-        r.year = r.date_str ? parseInt(r.date_str.slice(0,4)) : genYear;
+        // brand_pivot/mall_pivot: infer year from week_end; others from generated_at
+        r.year = r.week_end ? parseInt(r.week_end.slice(0,4)) : genYear;
       }
     });
   });
@@ -317,64 +318,57 @@ function renderPivotTable(){
     else if(oc.includes("pvMetric='qty'")) b.className='btn '+(pvMetric==='qty'?'active':'');
   });
 
-  // Build time structure from data
-  // months → weeks → days  (横軸)
+  // 横軸：月 → 週（date_str廃止）
   const src = pvAxis==='brand' ? DATA.brand_pivot : DATA.mall_pivot;
 
-  // Collect unique time keys
-  const monthSet=new Set(), weekMap={}, dayMap={};
+  // 月→週の時間構造を構築
+  const monthSet=new Set(), weekMap={};
   src.forEach(r=>{
     const mk=`${r.year}-${String(r.month).padStart(2,'0')}`;
     monthSet.add(mk);
     if(!weekMap[mk]) weekMap[mk]=new Set();
     weekMap[mk].add(r.week_end);
-    if(!dayMap[r.week_end]) dayMap[r.week_end]=new Set();
-    dayMap[r.week_end].add(r.date_str);
   });
   const months=[...monthSet].sort();
   months.forEach(m=>{weekMap[m]=[...weekMap[m]].sort()});
-  Object.keys(dayMap).forEach(w=>{dayMap[w]=[...dayMap[w]].sort()});
 
-  // Build column header list (expanded state)
-  const colHeaders=[];// [{key, label, type:'month'|'week'|'day', month, week}]
+  // 列ヘッダー構築（月 + 展開すると週）
+  const colHeaders=[];
   months.forEach(m=>{
     const mKey='m_'+m;
     colHeaders.push({key:mKey,label:m,type:'month'});
     if(pvExpanded.has(mKey)){
       (weekMap[m]||[]).forEach(w=>{
-        const wKey='w_'+w;
-        colHeaders.push({key:wKey,label:'〜'+w.slice(5),type:'week',month:m});
-        if(pvExpanded.has(wKey)){
-          (dayMap[w]||[]).forEach(d=>{
-            colHeaders.push({key:'d_'+d,label:d.slice(5),type:'day',month:m,week:w});
-          });
-        }
+        colHeaders.push({key:'w_'+w,label:'〜'+w.slice(5),type:'week'});
       });
     }
   });
 
-  // Aggregate value for given row-key combo and col
+  // 値集計
   const getVal=(filters, colH)=>{
     let rows=src;
     Object.entries(filters).forEach(([k,v])=>{rows=rows.filter(r=>r[k]===v)});
-    if(colH.type==='month'){const[y,mo]=colH.key.slice(2).split('-').map(Number);rows=rows.filter(r=>r.year===y&&r.month===mo);}
-    else if(colH.type==='week'){rows=rows.filter(r=>r.week_end===colH.key.slice(2));}
-    else{rows=rows.filter(r=>r.date_str===colH.key.slice(2));}
-    const sum=rows.reduce((a,r)=>a+(pvMetric==='amount'?r['売上高万']:r['売上個数']),0);
-    return sum;
+    if(colH.type==='month'){
+      const[y,mo]=colH.key.slice(2).split('-').map(Number);
+      rows=rows.filter(r=>r.year===y&&r.month===mo);
+    } else {
+      rows=rows.filter(r=>r.week_end===colH.key.slice(2));
+    }
+    return rows.reduce((a,r)=>a+(pvMetric==='amount'?r['売上高万']:r['売上個数']),0);
   };
   const fmtV=v=>pvMetric==='amount'?(v?v.toFixed(1):''):(v?v.toLocaleString():'');
 
-  // Build table HTML
+  // テーブルヘッダー
   let th=`<tr><th style="min-width:200px">項目</th>`;
   colHeaders.forEach(c=>{
-    const canExpand=c.type!=='day';
     const isExp=pvExpanded.has(c.key);
+    const canExpand=c.type==='month';
     th+=`<th class="num" style="cursor:${canExpand?'pointer':'default'};font-size:10px;padding:5px 6px" onclick="${canExpand?`togglePvTime('${c.key}')`:''}">`;
-    th+=`${canExpand?(isExp?'▾':'▸'):''}${c.label}</th>`;
+    th+=`${canExpand?(isExp?'▾':'▸'):'　'}${c.label}</th>`;
   });
   th+='</tr>';
 
+  // テーブル本体
   let tbody='';
   if(pvAxis==='brand'){
     const brands=[...new Set(src.map(r=>r['ブランド正規化']))].sort();
@@ -394,7 +388,7 @@ function renderPivotTable(){
               const sk=pk+'_s_'+s, sOpen=pvExpanded.has(sk);
               const sVals=colHeaders.map(c=>getVal({'ブランド正規化':b,'商品名':p,'型番':s},c));
               const hasMall=[...new Set(src.filter(r=>r['ブランド正規化']===b&&r['商品名']===p&&r['型番']===s).map(r=>r['モール']))].length>1;
-              tbody+=`<tr class="prow pi2" onclick="${hasMall?`togglePvRow('${sk}')`:''}"><td><span class="ei">${hasMall?(sOpen?'▾':'▸'):''}</span>${s||'(単品)'}</td>${sVals.map(v=>`<td class="num">${fmtV(v)}</td>`).join('')}</tr>`;
+              tbody+=`<tr class="prow pi2" onclick="${hasMall?`togglePvRow('${sk}')`:''}""><td><span class="ei">${hasMall?(sOpen?'▾':'▸'):''}</span>${s||'(単品)'}</td>${sVals.map(v=>`<td class="num">${fmtV(v)}</td>`).join('')}</tr>`;
               if(sOpen&&hasMall){
                 ALL_MALLS.filter(m=>src.some(r=>r['ブランド正規化']===b&&r['商品名']===p&&r['型番']===s&&r['モール']===m)).forEach(m=>{
                   const mVals=colHeaders.map(c=>getVal({'ブランド正規化':b,'商品名':p,'型番':s,'モール':m},c));
