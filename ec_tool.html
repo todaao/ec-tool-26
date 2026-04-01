@@ -662,10 +662,12 @@ let rkMall='all', rkSort='amount', rkStart='', rkEnd='';
 
 function renderRanking(){
   if(!DATA)return;
-  // Init date range from available data
-  const dates=Object.keys(DATA.daily).sort();
-  if(!rkStart) rkStart=dates[0]||'';
-  if(!rkEnd)   rkEnd=dates[dates.length-1]||'';
+  // Init date range from brand_pivot week_end
+  if(!rkStart||!rkEnd){
+    const weeks=DATA.brand_pivot.map(r=>r.week_end).filter(Boolean).sort();
+    if(!rkStart) rkStart=weeks[0]||'';
+    if(!rkEnd)   rkEnd=weeks[weeks.length-1]||'';
+  }
 
   const mallOpts=['all','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','★自社国内EC','yahoo','LINE GIFT','TANP','メルカリ'];
 
@@ -699,8 +701,8 @@ function renderRankBody(){
     if(m!==undefined) b.className='btn '+(rkMall===m?'active':'');
   });
 
-  // Filter brand_pivot by date range and mall
-  let rows=DATA.brand_pivot.filter(r=>r.date_str>=rkStart&&r.date_str<=rkEnd);
+  // Filter brand_pivot by date range and mall (week_end ベース)
+  let rows=DATA.brand_pivot.filter(r=>r.week_end>=rkStart&&r.week_end<=rkEnd);
   if(rkMall!=='all') rows=rows.filter(r=>r['モール']===rkMall);
 
   // Aggregate by 商品名＋型番（SKU単位）＋ブランド
