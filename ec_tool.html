@@ -775,7 +775,6 @@ function renderRankBody(){
 let npSelected=new Set([NEW_PRODUCTS[0]?.name].filter(Boolean));
 
 function fmtMD(dateStr){const[,m,d]=dateStr.split('-').map(Number);return`${m}/${d}`;}
-// UTC問題を避けてローカル日付文字列を返す
 function localStr(dt){return`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;}
 
 function renderNewProd(){
@@ -816,10 +815,9 @@ function renderNpCharts(){
       </div>`).join('')
   }</div>`;
   selected.forEach((prod,i)=>{
-    // 発売日が含まれる土曜締め週を起点に4週分算出（ローカル日付でUTCズレ回避）
     const launchDt=new Date(prod.launch+'T00:00:00');
-    const jsDay=launchDt.getDay(); // 0=日 6=土
-    const daysToSat=(6-jsDay+7)%7; // 当日土曜なら0
+    const jsDay=launchDt.getDay();
+    const daysToSat=(6-jsDay+7)%7;
     const sat0=new Date(launchDt); sat0.setDate(launchDt.getDate()+daysToSat);
     const weeks=[0,1,2,3].map(n=>{
       const we=new Date(sat0); we.setDate(sat0.getDate()+7*n);
@@ -1267,6 +1265,7 @@ function renderAnomaly(){
             <th class="sort-th" onclick="anSort('type')">種別${anSortCol==='type'?anSortDir>0?'▴':'▾':''}</th>
             <th class="sort-th" onclick="anSort('date')">日付${anSortCol==='date'?anSortDir>0?'▴':'▾':''}</th>
             <th class="sort-th" onclick="anSort('product')">商品名${anSortCol==='product'?anSortDir>0?'▴':'▾':''}</th>
+            <th class="sort-th" onclick="anSort('sku')">型番${anSortCol==='sku'?anSortDir>0?'▴':'▾':''}</th>
             <th class="sort-th" onclick="anSort('brand')">ブランド${anSortCol==='brand'?anSortDir>0?'▴':'▾':''}</th>
             <th class="sort-th num" onclick="anSort('amount_man')">売上高${anSortCol==='amount_man'?anSortDir>0?'▴':'▾':''}</th>
             <th class="sort-th num" onclick="anSort('z')">z値${anSortCol==='z'?anSortDir>0?'▴':'▾':''}</th>
@@ -1287,7 +1286,7 @@ function anSort(col){
   renderAnomalyTable();
   // Update header arrows
   document.querySelectorAll('#anomaly-tbl .sort-th').forEach(th=>{
-    const cols={'種別':'type','日付':'date','商品名':'product','ブランド':'brand','売上高':'amount_man','z値':'z'};
+    const cols={'種別':'type','日付':'date','商品名':'product','型番':'sku','ブランド':'brand','売上高':'amount_man','z値':'z'};
     const key=Object.entries(cols).find(([k])=>th.textContent.startsWith(k))?.[1];
     if(key) th.textContent=th.textContent.replace(/[▴▾]/g,'')+(anSortCol===key?(anSortDir>0?'▴':'▾'):'');
   });
@@ -1316,14 +1315,15 @@ function renderAnomalyTable(){
   if(!tbody)return;
 
   if(!rows.length){
-    tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--tx3)">条件に一致するデータがありません</td></tr>`;
+    tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--tx3)">条件に一致するデータがありません</td></tr>`;
     return;
   }
 
   tbody.innerHTML=rows.map(r=>`<tr>
     <td><span class="atype" style="background:${AN_TYPE_COLORS[r.type]||'#555'}28;color:${AN_TYPE_COLORS[r.type]||'#aaa'};padding:2px 8px;border-radius:4px;font-size:11px;white-space:nowrap">${r.icon} ${r.type}</span></td>
     <td style="font-size:11px;white-space:nowrap">${r.date}</td>
-    <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${r.product}">${r.product}</td>
+    <td style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${r.product}">${r.product}</td>
+    <td style="font-size:11px;color:var(--tx2);max-width:120px;overflow:hidden;text-overflow:ellipsis" title="${r.sku||''}">${r.sku||'-'}</td>
     <td style="font-size:11px;color:var(--tx2);white-space:nowrap">${r.brand}</td>
     <td class="num" style="font-weight:${Math.abs(r.z)>=3?'600':'400'}">${r.amount_man}万</td>
     <td class="num ${r.z>=0?'pos':'neg'}" style="font-weight:600">${r.z>0?'+':''}${r.z}</td>
