@@ -211,12 +211,49 @@ window.doLogin=async function(){
 };
 
 // ─── DATA ───
+// Convert compact array format back to array-of-objects for all list fields
+function decompactData(d){
+  const toObjs=c=>{
+    if(!c||!c.cols||!c.rows)return c;
+    return c.rows.map(r=>{const o={};c.cols.forEach((k,i)=>o[k]=r[i]);return o;});
+  };
+  d.brand_pivot    = toObjs(d.brand_pivot);
+  d.mall_pivot     = toObjs(d.mall_pivot);
+  d.weekly_product = toObjs(d.weekly_product);
+  d.monthly_product= toObjs(d.monthly_product);
+  d.new_product_weekly = toObjs(d.new_product_weekly);
+  // Rename compressed keys back to original names
+  const remap=(arr,from,to)=>arr.forEach(r=>{if(from in r){r[to]=r[from];delete r[from];}});
+  ['brand_pivot','mall_pivot','weekly_product','monthly_product'].forEach(k=>{
+    remap(d[k],'am','売上高万');
+    remap(d[k],'qt','売上個数');
+  });
+  remap(d.new_product_weekly,'am','売上高万');
+  remap(d.new_product_weekly,'qt','売上個数');
+  // daily/weekly key rename (a→amount, q→qty)
+  Object.values(d.daily).forEach(v=>{if(v.a){v.amount=v.a;delete v.a;}if(v.q){v.qty=v.q;delete v.q;}});
+  Object.values(d.weekly).forEach(v=>{if(v.a){v.amount=v.a;delete v.a;}if(v.q){v.qty=v.q;delete v.q;}});
+  // dba/dbq → daily_brand_amount / daily_brand_qty
+  if(d.dba){d.daily_brand_amount=d.dba;delete d.dba;}
+  if(d.dbq){d.daily_brand_qty=d.dbq;delete d.dbq;}
+  // Add year field back (infer from date_str or default to generated year)
+  const genYear=d.generated_at?parseInt(d.generated_at.slice(0,4)):2026;
+  ['brand_pivot','mall_pivot','weekly_product','monthly_product'].forEach(k=>{
+    d[k].forEach(r=>{
+      if(!('year' in r)){
+        r.year = r.date_str ? parseInt(r.date_str.slice(0,4)) : genYear;
+      }
+    });
+  });
+}
+
 async function loadData(){
   document.getElementById('pane-pivot').innerHTML='<div class="loading">データを読み込み中...</div>';
   try{
     const res=await fetch(DATA_URL);
     if(!res.ok) throw new Error('JSONファイルが見つかりません');
     DATA=await res.json();
+    decompactData(DATA);
     showTab('pivot');
   }catch(e){
     document.getElementById('pane-pivot').innerHTML=`<div class="card"><p style="color:#ff6b6b">⚠️ ${e.message}</p></div>`;
