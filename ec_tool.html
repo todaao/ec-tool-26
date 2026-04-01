@@ -189,7 +189,7 @@ const NEW_PRODUCTS=[
   {name:'なんでもいきものメイクパフ',launch:'2026-03-13'},
   {name:'ぷにっこ',launch:'2026-01-27'},
   {name:'ウィンドブレイカー キャラぬい',launch:'2026-03-27'},
-  {name:'ナルミヤキャラクターズ ぷにっこ',launch:'2026-03-27'},
+  {name:'ナルミヤキャラクターズ　ぷにっこ',launch:'2026-03-27'},
 ];
 
 let DATA=null, charts={};
@@ -806,10 +806,8 @@ function renderNpCharts(){
   const wrap=document.getElementById('np-charts');
   if(!wrap)return;
   Object.keys(charts).filter(k=>k.startsWith('np-')).forEach(k=>{if(charts[k]){charts[k].destroy();delete charts[k];}});
-
   const selected=[...npSelected].map(name=>NEW_PRODUCTS.find(p=>p.name===name)).filter(Boolean);
   if(!selected.length){wrap.innerHTML='<div class="no-data">商品を選択してください</div>';return;}
-
   wrap.innerHTML=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">${
     selected.map((_,i)=>`
       <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:14px">
@@ -818,7 +816,6 @@ function renderNpCharts(){
         <div id="np-sale-${i}" style="margin-top:6px"></div>
       </div>`).join('')
   }</div>`;
-
   selected.forEach((prod,i)=>{
     const weeks=[
       {label:'1週目',start:prod.launch,             end:addDays(prod.launch,6)},
@@ -826,17 +823,15 @@ function renderNpCharts(){
       {label:'3週目',start:addDays(prod.launch,14), end:addDays(prod.launch,20)},
       {label:'4週目',start:addDays(prod.launch,21), end:addDays(prod.launch,27)},
     ];
-    const xLabels=weeks.map(w=>[w.label, `${fmtMD(w.start)}〜${fmtMD(w.end)}`]);
+    const xLabels=weeks.map(w=>[w.label,`${fmtMD(w.start)}〜${fmtMD(w.end)}`]);
     const src=DATA.new_product_weekly;
     const datasets=ALL_MALLS.map(m=>({
       label:m,
       data:weeks.map(w=>src.filter(r=>r['商品名']===prod.name&&r['モール']===m&&r.week_end>=w.start&&r.week_end<=w.end).reduce((a,r)=>a+r['売上高万'],0)),
       backgroundColor:MALL_COLORS[m]||'#888',stack:'a'
     })).filter(ds=>ds.data.some(v=>v>0));
-
     const weekTotals=weeks.map((_,wi)=>datasets.reduce((s,ds)=>s+(ds.data[wi]||0),0));
     const grandTotal=weekTotals.reduce((a,v)=>a+v,0);
-
     const ctx=document.getElementById(`np-chart-${i}`);
     if(!ctx)return;
     charts[`np-${i}`]=new Chart(ctx,{
@@ -850,7 +845,6 @@ function renderNpCharts(){
         y:{stacked:true,ticks:{color:'#5a5f7d',font:{size:9},callback:v=>v+'万'},grid:{color:'rgba(255,255,255,.06)'}}
       }}
     });
-
     const tot=document.getElementById(`np-total-${i}`);
     if(tot) tot.innerHTML=`
       <table style="width:100%;font-size:11px;border-collapse:collapse">
@@ -863,7 +857,6 @@ function renderNpCharts(){
           <td style="text-align:right;padding:3px 4px;font-weight:700;color:var(--ac2)">${grandTotal.toFixed(1)}万</td>
         </tr></tbody>
       </table>`;
-
     const overlaps=new Map();
     weeks.forEach(w=>dateRange(w.start,w.end).forEach(d=>salesAnyOnDate(d).forEach(s=>{if(!overlaps.has(s.name))overlaps.set(s.name,s);})));
     const sn=document.getElementById(`np-sale-${i}`);
