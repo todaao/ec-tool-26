@@ -652,9 +652,7 @@ function renderChangeProd(cur,prev){
     ${list.map(r=>`<tr><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;font-size:11px">${r.p}</td><td class="num">${fmt(r.prev)}</td><td class="num">${fmt(r.cur)}</td><td class="num">${fmtRate(r.rate)}</td></tr>`).join('')}
   </tbody></table>`;
   const tw=document.getElementById('chg-top'),bw=document.getElementById('chg-bot');
-  // 伸びた商品：今期売上10万円以上に限定
   if(tw) tw.innerHTML=tbl([...chg].filter(x=>x.cur>=10).sort((a,b)=>(b.rate||0)-(a.rate||0)).slice(0,20));
-  // 落ちた商品：前期売上5万円以上に限定
   if(bw) bw.innerHTML=tbl([...chg].filter(x=>x.prev>=5).sort((a,b)=>(a.rate||0)-(b.rate||0)).slice(0,20));
 }
 
@@ -776,13 +774,18 @@ function renderRankBody(){
 // ═══════════════════════════════════════════
 let npSelected=new Set([NEW_PRODUCTS[0]?.name].filter(Boolean));
 
+function fmtMD(dateStr){
+  const [,m,d]=dateStr.split('-').map(Number);
+  return `${m}/${d}`;
+}
+
 function renderNewProd(){
   if(!DATA)return;
   const pane=document.getElementById('pane-newprod');
   const btnHtml=NEW_PRODUCTS.map(p=>`<button class="btn ${npSelected.has(p.name)?'active':''}" onclick="toggleNpProd('${p.name.replace(/'/g,"\\'")}')">${p.name}</button>`).join('');
   pane.innerHTML=`
     <div class="card">
-      <div class="card-title">新商品 発売後4週間分析（最大3商品同時表示）</div>
+      <div class="card-title">新商品 発売後4週間分析（最大6商品同時表示）</div>
       <div class="btn-group" style="margin-bottom:14px">${btnHtml}</div>
       <div id="np-charts"></div>
     </div>`;
@@ -791,8 +794,7 @@ function renderNewProd(){
 
 function toggleNpProd(name){
   if(npSelected.has(name)){npSelected.delete(name);}
-  else{if(npSelected.size>=3){alert('最大3商品まで選択できます');return;}npSelected.add(name);}
-  // Update btn states
+  else{if(npSelected.size>=6){alert('最大6商品まで選択できます');return;}npSelected.add(name);}
   document.querySelectorAll('#pane-newprod .btn-group .btn').forEach(b=>{
     const p=NEW_PRODUCTS.find(x=>x.name===b.textContent);
     if(p) b.className='btn '+(npSelected.has(p.name)?'active':'');
@@ -803,22 +805,28 @@ function toggleNpProd(name){
 function renderNpCharts(){
   const wrap=document.getElementById('np-charts');
   if(!wrap)return;
-  // Destroy old charts
   Object.keys(charts).filter(k=>k.startsWith('np-')).forEach(k=>{if(charts[k]){charts[k].destroy();delete charts[k];}});
 
   const selected=[...npSelected].map(name=>NEW_PRODUCTS.find(p=>p.name===name)).filter(Boolean);
   if(!selected.length){wrap.innerHTML='<div class="no-data">商品を選択してください</div>';return;}
 
-  const colCount=selected.length;
-  wrap.innerHTML=`<div style="display:grid;grid-template-columns:repeat(${colCount},1fr);gap:14px">${selected.map((_,i)=>`<div><canvas id="np-chart-${i}"></canvas><div id="np-sale-${i}" style="margin-top:8px"></div></div>`).join('')}</div>`;
+  wrap.innerHTML=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">${
+    selected.map((_,i)=>`
+      <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:14px">
+        <canvas id="np-chart-${i}" style="max-height:220px"></canvas>
+        <div id="np-total-${i}" style="margin-top:10px"></div>
+        <div id="np-sale-${i}" style="margin-top:6px"></div>
+      </div>`).join('')
+  }</div>`;
 
   selected.forEach((prod,i)=>{
     const weeks=[
-      {label:'1週目',start:prod.launch,end:addDays(prod.launch,6)},
-      {label:'2週目',start:addDays(prod.launch,7),end:addDays(prod.launch,13)},
-      {label:'3週目',start:addDays(prod.launch,14),end:addDays(prod.launch,20)},
-      {label:'4週目',start:addDays(prod.launch,21),end:addDays(prod.launch,27)},
+      {label:'1週目',start:prod.launch,             end:addDays(prod.launch,6)},
+      {label:'2週目',start:addDays(prod.launch,7),  end:addDays(prod.launch,13)},
+      {label:'3週目',start:addDays(prod.launch,14), end:addDays(prod.launch,20)},
+      {label:'4週目',start:addDays(prod.launch,21), end:addDays(prod.launch,27)},
     ];
+    const xLabels=weeks.map(w=>[w.label, `${fmtMD(w.start)}〜${fmtMD(w.end)}`]);
     const src=DATA.new_product_weekly;
     const datasets=ALL_MALLS.map(m=>({
       label:m,
@@ -826,13 +834,16 @@ function renderNpCharts(){
       backgroundColor:MALL_COLORS[m]||'#888',stack:'a'
     })).filter(ds=>ds.data.some(v=>v>0));
 
+    const weekTotals=weeks.map((_,wi)=>datasets.reduce((s,ds)=>s+(ds.data[wi]||0),0));
+    const grandTotal=weekTotals.reduce((a,v)=>a+v,0);
+
     const ctx=document.getElementById(`np-chart-${i}`);
     if(!ctx)return;
     charts[`np-${i}`]=new Chart(ctx,{
       type:'bar',
-      data:{labels:[`${prod.name}\n${prod.launch}〜`,...weeks.map(w=>w.label)].slice(1),datasets},
+      data:{labels:xLabels,datasets},
       options:{responsive:true,plugins:{
-        title:{display:true,text:`${prod.name}（${prod.launch}発売）`,color:'#e8eaf6',font:{size:11}},
+        title:{display:true,text:`${prod.name}（${prod.launch}発売）`,color:'#e8eaf6',font:{size:11},padding:{bottom:8}},
         legend:{labels:{color:'#8b8fa8',boxWidth:8,font:{size:9}}}
       },scales:{
         x:{stacked:true,ticks:{color:'#5a5f7d',font:{size:9}},grid:{color:'rgba(255,255,255,.04)'}},
@@ -840,7 +851,19 @@ function renderNpCharts(){
       }}
     });
 
-    // Sale overlaps
+    const tot=document.getElementById(`np-total-${i}`);
+    if(tot) tot.innerHTML=`
+      <table style="width:100%;font-size:11px;border-collapse:collapse">
+        <thead><tr>
+          ${weeks.map(w=>`<th style="text-align:right;color:var(--tx2);padding:3px 4px;border-bottom:1px solid var(--bd);white-space:nowrap">${w.label}<br><span style="font-size:9px;font-weight:normal;color:var(--tx3)">${fmtMD(w.start)}〜${fmtMD(w.end)}</span></th>`).join('')}
+          <th style="text-align:right;color:var(--ac2);padding:3px 4px;border-bottom:1px solid var(--bd)">4週計</th>
+        </tr></thead>
+        <tbody><tr>
+          ${weekTotals.map(v=>`<td style="text-align:right;padding:3px 4px;font-variant-numeric:tabular-nums">${v>0?v.toFixed(1)+'万':'-'}</td>`).join('')}
+          <td style="text-align:right;padding:3px 4px;font-weight:700;color:var(--ac2)">${grandTotal.toFixed(1)}万</td>
+        </tr></tbody>
+      </table>`;
+
     const overlaps=new Map();
     weeks.forEach(w=>dateRange(w.start,w.end).forEach(d=>salesAnyOnDate(d).forEach(s=>{if(!overlaps.has(s.name))overlaps.set(s.name,s);})));
     const sn=document.getElementById(`np-sale-${i}`);
@@ -947,15 +970,9 @@ function renderBudget(){
     responsive:true,
     plugins:{
       datalabels:{
-        color:'#fff',
-        font:{size:10,weight:'bold'},
-        formatter:(val,ctx)=>{
-          const tot=ctx.dataset.data.reduce((a,b)=>a+b,0);
-          const pct=val/tot*100;
-          return pct>=5?pct.toFixed(1)+'%':'';
-        },
-        textShadowBlur:4,
-        textShadowColor:'rgba(0,0,0,0.6)',
+        color:'#fff',font:{size:10,weight:'bold'},
+        formatter:(val,ctx)=>{const tot=ctx.dataset.data.reduce((a,b)=>a+b,0);const pct=val/tot*100;return pct>=5?pct.toFixed(1)+'%':'';},
+        textShadowBlur:4,textShadowColor:'rgba(0,0,0,0.6)',
       },
       legend:{position:'right',labels:{color:'#8b8fa8',boxWidth:10,font:{size:10}}},
       tooltip:{callbacks:{label:ctx=>{const tot=vals.reduce((a,b)=>a+b,0);return`${ctx.label}: ${ctx.parsed.toFixed(1)}万 (${(ctx.parsed/tot*100).toFixed(1)}%)`}}},
@@ -963,22 +980,15 @@ function renderBudget(){
     }
   });
   if(!Chart.registry.plugins.get('centerText')){
-    Chart.register({
-      id:'centerText',
-      afterDraw(chart){
-        const cfg=chart.config.options?.plugins?.centerText;
-        if(!cfg?.label)return;
-        const{ctx,chartArea:{left,right,top,bottom}}=chart;
-        const cx=(left+right)/2, cy=(top+bottom)/2;
-        ctx.save();
-        ctx.textAlign='center';
-        ctx.textBaseline='middle';
-        ctx.font='bold 13px sans-serif';
-        ctx.fillStyle='#e8eaf6';
-        ctx.fillText(cfg.label,cx,cy);
-        ctx.restore();
-      }
-    });
+    Chart.register({id:'centerText',afterDraw(chart){
+      const cfg=chart.config.options?.plugins?.centerText;
+      if(!cfg?.label)return;
+      const{ctx,chartArea:{left,right,top,bottom}}=chart;
+      const cx=(left+right)/2,cy=(top+bottom)/2;
+      ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.font='bold 13px sans-serif';ctx.fillStyle='#e8eaf6';
+      ctx.fillText(cfg.label,cx,cy);ctx.restore();
+    }});
   }
   // 円グラフ：ブランド別
   const brandData=byBrandMonth[bgSelectedMonth]||{};
@@ -987,12 +997,7 @@ function renderBudget(){
   const bColors=bLabels.map(b=>BRAND_COLORS[b]||'#888');
   const bTot=bVals.reduce((a,b)=>a+b,0);
   const ctxPB=document.getElementById('bg-pie-brand');
-  if(ctxPB) charts['bg-pie-brand']=new Chart(ctxPB,{
-    type:'doughnut',
-    data:{labels:bLabels,datasets:[{data:bVals,backgroundColor:bColors,borderWidth:1,borderColor:'#1a1d27'}]},
-    options:makePieOpts(bVals, bTot.toFixed(1)+'万'),
-    plugins:[ChartDataLabels]
-  });
+  if(ctxPB) charts['bg-pie-brand']=new Chart(ctxPB,{type:'doughnut',data:{labels:bLabels,datasets:[{data:bVals,backgroundColor:bColors,borderWidth:1,borderColor:'#1a1d27'}]},options:makePieOpts(bVals,bTot.toFixed(1)+'万'),plugins:[ChartDataLabels]});
   // 円グラフ：モール別
   const mData={};
   mallOrder.forEach(m=>{const v=byMallMonth[m]?.[bgSelectedMonth]||0;if(v>0)mData[m]=v;});
@@ -1001,12 +1006,7 @@ function renderBudget(){
   const mColors=mLabels.map(m=>MALL_COLORS[m]||'#888');
   const mTot=mVals.reduce((a,b)=>a+b,0);
   const ctxPM=document.getElementById('bg-pie-mall');
-  if(ctxPM) charts['bg-pie-mall']=new Chart(ctxPM,{
-    type:'doughnut',
-    data:{labels:mLabels,datasets:[{data:mVals,backgroundColor:mColors,borderWidth:1,borderColor:'#1a1d27'}]},
-    options:makePieOpts(mVals, mTot.toFixed(1)+'万'),
-    plugins:[ChartDataLabels]
-  });
+  if(ctxPM) charts['bg-pie-mall']=new Chart(ctxPM,{type:'doughnut',data:{labels:mLabels,datasets:[{data:mVals,backgroundColor:mColors,borderWidth:1,borderColor:'#1a1d27'}]},options:makePieOpts(mVals,mTot.toFixed(1)+'万'),plugins:[ChartDataLabels]});
 
   // 帯グラフ：ブランド割合
   const allBrands=[...new Set(DATA.monthly_product.map(r=>r['ブランド正規化']))].sort();
