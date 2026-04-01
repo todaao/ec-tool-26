@@ -652,8 +652,9 @@ function renderChangeProd(cur,prev){
     ${list.map(r=>`<tr><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;font-size:11px">${r.p}</td><td class="num">${fmt(r.prev)}</td><td class="num">${fmt(r.cur)}</td><td class="num">${fmtRate(r.rate)}</td></tr>`).join('')}
   </tbody></table>`;
   const tw=document.getElementById('chg-top'),bw=document.getElementById('chg-bot');
-  if(tw) tw.innerHTML=tbl([...chg].sort((a,b)=>(b.rate||0)-(a.rate||0)).slice(0,20));
-  // 落ちた商品：前期売上5万円以上のものに限定
+  // 伸びた商品：今期売上10万円以上に限定
+  if(tw) tw.innerHTML=tbl([...chg].filter(x=>x.cur>=10).sort((a,b)=>(b.rate||0)-(a.rate||0)).slice(0,20));
+  // 落ちた商品：前期売上5万円以上に限定
   if(bw) bw.innerHTML=tbl([...chg].filter(x=>x.prev>=5).sort((a,b)=>(a.rate||0)-(b.rate||0)).slice(0,20));
 }
 
@@ -979,7 +980,6 @@ function renderBudget(){
       }
     });
   }
-
   // 円グラフ：ブランド別
   const brandData=byBrandMonth[bgSelectedMonth]||{};
   const bLabels=Object.keys(brandData).sort((a,b)=>brandData[b]-brandData[a]);
@@ -993,7 +993,6 @@ function renderBudget(){
     options:makePieOpts(bVals, bTot.toFixed(1)+'万'),
     plugins:[ChartDataLabels]
   });
-
   // 円グラフ：モール別
   const mData={};
   mallOrder.forEach(m=>{const v=byMallMonth[m]?.[bgSelectedMonth]||0;if(v>0)mData[m]=v;});
