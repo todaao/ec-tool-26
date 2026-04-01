@@ -774,10 +774,7 @@ function renderRankBody(){
 // ═══════════════════════════════════════════
 let npSelected=new Set([NEW_PRODUCTS[0]?.name].filter(Boolean));
 
-function fmtMD(dateStr){
-  const [,m,d]=dateStr.split('-').map(Number);
-  return `${m}/${d}`;
-}
+function fmtMD(dateStr){const[,m,d]=dateStr.split('-').map(Number);return`${m}/${d}`;}
 
 function renderNewProd(){
   if(!DATA)return;
@@ -817,34 +814,34 @@ function renderNpCharts(){
       </div>`).join('')
   }</div>`;
   selected.forEach((prod,i)=>{
-    const weeks=[
-      {label:'1週目',start:prod.launch,             end:addDays(prod.launch,6)},
-      {label:'2週目',start:addDays(prod.launch,7),  end:addDays(prod.launch,13)},
-      {label:'3週目',start:addDays(prod.launch,14), end:addDays(prod.launch,20)},
-      {label:'4週目',start:addDays(prod.launch,21), end:addDays(prod.launch,27)},
-    ];
+    // 発売日が含まれる土曜締め週を起点に4週分算出
+    const launchDt=new Date(prod.launch+'T00:00:00');
+    const daysToSat=(6-launchDt.getDay()+7)%7; // 0なら当日土曜
+    const sat0=new Date(launchDt); sat0.setDate(launchDt.getDate()+daysToSat);
+    const toStr=dt=>dt.toISOString().slice(0,10);
+    const weeks=[0,1,2,3].map(i=>{
+      const we=new Date(sat0); we.setDate(sat0.getDate()+7*i);
+      const ws=new Date(we);   ws.setDate(we.getDate()-6);
+      return {label:`${i+1}週目`, weekEnd:toStr(we), start:toStr(ws), end:toStr(we)};
+    });
     const xLabels=weeks.map(w=>[w.label,`${fmtMD(w.start)}〜${fmtMD(w.end)}`]);
     const src=DATA.new_product_weekly;
     const datasets=ALL_MALLS.map(m=>({
       label:m,
-      data:weeks.map(w=>src.filter(r=>r['商品名']===prod.name&&r['モール']===m&&r.week_end>=w.start&&r.week_end<=w.end).reduce((a,r)=>a+r['売上高万'],0)),
+      data:weeks.map(w=>src.filter(r=>r['商品名']===prod.name&&r['モール']===m&&r.week_end===w.weekEnd).reduce((a,r)=>a+r['売上高万'],0)),
       backgroundColor:MALL_COLORS[m]||'#888',stack:'a'
     })).filter(ds=>ds.data.some(v=>v>0));
     const weekTotals=weeks.map((_,wi)=>datasets.reduce((s,ds)=>s+(ds.data[wi]||0),0));
     const grandTotal=weekTotals.reduce((a,v)=>a+v,0);
     const ctx=document.getElementById(`np-chart-${i}`);
     if(!ctx)return;
-    charts[`np-${i}`]=new Chart(ctx,{
-      type:'bar',
-      data:{labels:xLabels,datasets},
-      options:{responsive:true,plugins:{
-        title:{display:true,text:`${prod.name}（${prod.launch}発売）`,color:'#e8eaf6',font:{size:11},padding:{bottom:8}},
-        legend:{labels:{color:'#8b8fa8',boxWidth:8,font:{size:9}}}
-      },scales:{
-        x:{stacked:true,ticks:{color:'#5a5f7d',font:{size:9}},grid:{color:'rgba(255,255,255,.04)'}},
-        y:{stacked:true,ticks:{color:'#5a5f7d',font:{size:9},callback:v=>v+'万'},grid:{color:'rgba(255,255,255,.06)'}}
-      }}
-    });
+    charts[`np-${i}`]=new Chart(ctx,{type:'bar',data:{labels:xLabels,datasets},options:{responsive:true,plugins:{
+      title:{display:true,text:`${prod.name}（${prod.launch}発売）`,color:'#e8eaf6',font:{size:11},padding:{bottom:8}},
+      legend:{labels:{color:'#8b8fa8',boxWidth:8,font:{size:9}}}
+    },scales:{
+      x:{stacked:true,ticks:{color:'#5a5f7d',font:{size:9}},grid:{color:'rgba(255,255,255,.04)'}},
+      y:{stacked:true,ticks:{color:'#5a5f7d',font:{size:9},callback:v=>v+'万'},grid:{color:'rgba(255,255,255,.06)'}}
+    }}});
     const tot=document.getElementById(`np-total-${i}`);
     if(tot) tot.innerHTML=`
       <table style="width:100%;font-size:11px;border-collapse:collapse">
@@ -958,31 +955,12 @@ function renderBudget(){
 
   buildMallAccordion(mallOrder,targets,byMallMonth,byMallDay,months,availMonths);
 
-  // 円グラフ共通オプション生成
-  const makePieOpts=(vals,centerLabel)=>({
-    responsive:true,
-    plugins:{
-      datalabels:{
-        color:'#fff',font:{size:10,weight:'bold'},
-        formatter:(val,ctx)=>{const tot=ctx.dataset.data.reduce((a,b)=>a+b,0);const pct=val/tot*100;return pct>=5?pct.toFixed(1)+'%':'';},
-        textShadowBlur:4,textShadowColor:'rgba(0,0,0,0.6)',
-      },
+  const makePieOpts=(vals,centerLabel)=>({responsive:true,plugins:{
+      datalabels:{color:'#fff',font:{size:10,weight:'bold'},formatter:(val,ctx)=>{const tot=ctx.dataset.data.reduce((a,b)=>a+b,0);const pct=val/tot*100;return pct>=5?pct.toFixed(1)+'%':'';},textShadowBlur:4,textShadowColor:'rgba(0,0,0,0.6)'},
       legend:{position:'right',labels:{color:'#8b8fa8',boxWidth:10,font:{size:10}}},
       tooltip:{callbacks:{label:ctx=>{const tot=vals.reduce((a,b)=>a+b,0);return`${ctx.label}: ${ctx.parsed.toFixed(1)}万 (${(ctx.parsed/tot*100).toFixed(1)}%)`}}},
-      centerText:{label:centerLabel}
-    }
-  });
-  if(!Chart.registry.plugins.get('centerText')){
-    Chart.register({id:'centerText',afterDraw(chart){
-      const cfg=chart.config.options?.plugins?.centerText;
-      if(!cfg?.label)return;
-      const{ctx,chartArea:{left,right,top,bottom}}=chart;
-      const cx=(left+right)/2,cy=(top+bottom)/2;
-      ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.font='bold 13px sans-serif';ctx.fillStyle='#e8eaf6';
-      ctx.fillText(cfg.label,cx,cy);ctx.restore();
-    }});
-  }
+      centerText:{label:centerLabel}}});
+  if(!Chart.registry.plugins.get('centerText')){Chart.register({id:'centerText',afterDraw(chart){const cfg=chart.config.options?.plugins?.centerText;if(!cfg?.label)return;const{ctx,chartArea:{left,right,top,bottom}}=chart;const cx=(left+right)/2,cy=(top+bottom)/2;ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='bold 13px sans-serif';ctx.fillStyle='#e8eaf6';ctx.fillText(cfg.label,cx,cy);ctx.restore();}});}
   // 円グラフ：ブランド別
   const brandData=byBrandMonth[bgSelectedMonth]||{};
   const bLabels=Object.keys(brandData).sort((a,b)=>brandData[b]-brandData[a]);
