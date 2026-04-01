@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EC売上分析ツール 2026</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <style>
 :root{--bg:#0f1117;--sf:#1a1d27;--sf2:#22263a;--bd:#2e3350;--ac:#5c73f2;--ac2:#3dd68c;--tx:#e8eaf6;--tx2:#8b8fa8;--tx3:#5a5f7d;--r:8px;--shadow:0 4px 24px rgba(0,0,0,.4)}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -652,7 +653,8 @@ function renderChangeProd(cur,prev){
   </tbody></table>`;
   const tw=document.getElementById('chg-top'),bw=document.getElementById('chg-bot');
   if(tw) tw.innerHTML=tbl([...chg].sort((a,b)=>(b.rate||0)-(a.rate||0)).slice(0,20));
-  if(bw) bw.innerHTML=tbl([...chg].sort((a,b)=>(a.rate||0)-(b.rate||0)).slice(0,20));
+  // 落ちた商品：前期売上5万円以上のものに限定
+  if(bw) bw.innerHTML=tbl([...chg].filter(x=>x.prev>=5).sort((a,b)=>(a.rate||0)-(b.rate||0)).slice(0,20));
 }
 
 // ═══════════════════════════════════════════
@@ -939,13 +941,58 @@ function renderBudget(){
 
   buildMallAccordion(mallOrder,targets,byMallMonth,byMallDay,months,availMonths);
 
+  // 円グラフ共通オプション生成
+  const makePieOpts=(vals,centerLabel)=>({
+    responsive:true,
+    plugins:{
+      datalabels:{
+        color:'#fff',
+        font:{size:10,weight:'bold'},
+        formatter:(val,ctx)=>{
+          const tot=ctx.dataset.data.reduce((a,b)=>a+b,0);
+          const pct=val/tot*100;
+          return pct>=5?pct.toFixed(1)+'%':'';
+        },
+        textShadowBlur:4,
+        textShadowColor:'rgba(0,0,0,0.6)',
+      },
+      legend:{position:'right',labels:{color:'#8b8fa8',boxWidth:10,font:{size:10}}},
+      tooltip:{callbacks:{label:ctx=>{const tot=vals.reduce((a,b)=>a+b,0);return`${ctx.label}: ${ctx.parsed.toFixed(1)}万 (${(ctx.parsed/tot*100).toFixed(1)}%)`}}},
+      centerText:{label:centerLabel}
+    }
+  });
+  if(!Chart.registry.plugins.get('centerText')){
+    Chart.register({
+      id:'centerText',
+      afterDraw(chart){
+        const cfg=chart.config.options?.plugins?.centerText;
+        if(!cfg?.label)return;
+        const{ctx,chartArea:{left,right,top,bottom}}=chart;
+        const cx=(left+right)/2, cy=(top+bottom)/2;
+        ctx.save();
+        ctx.textAlign='center';
+        ctx.textBaseline='middle';
+        ctx.font='bold 13px sans-serif';
+        ctx.fillStyle='#e8eaf6';
+        ctx.fillText(cfg.label,cx,cy);
+        ctx.restore();
+      }
+    });
+  }
+
   // 円グラフ：ブランド別
   const brandData=byBrandMonth[bgSelectedMonth]||{};
   const bLabels=Object.keys(brandData).sort((a,b)=>brandData[b]-brandData[a]);
   const bVals=bLabels.map(b=>brandData[b]);
   const bColors=bLabels.map(b=>BRAND_COLORS[b]||'#888');
+  const bTot=bVals.reduce((a,b)=>a+b,0);
   const ctxPB=document.getElementById('bg-pie-brand');
-  if(ctxPB) charts['bg-pie-brand']=new Chart(ctxPB,{type:'doughnut',data:{labels:bLabels,datasets:[{data:bVals,backgroundColor:bColors,borderWidth:1,borderColor:'#1a1d27'}]},options:{responsive:true,plugins:{legend:{position:'right',labels:{color:'#8b8fa8',boxWidth:10,font:{size:10}}},tooltip:{callbacks:{label:ctx=>{const tot=bVals.reduce((a,b)=>a+b,0);return`${ctx.label}: ${ctx.parsed.toFixed(1)}万 (${(ctx.parsed/tot*100).toFixed(1)}%)`;}}}}}});
+  if(ctxPB) charts['bg-pie-brand']=new Chart(ctxPB,{
+    type:'doughnut',
+    data:{labels:bLabels,datasets:[{data:bVals,backgroundColor:bColors,borderWidth:1,borderColor:'#1a1d27'}]},
+    options:makePieOpts(bVals, bTot.toFixed(1)+'万'),
+    plugins:[ChartDataLabels]
+  });
 
   // 円グラフ：モール別
   const mData={};
@@ -953,8 +1000,14 @@ function renderBudget(){
   const mLabels=Object.keys(mData).sort((a,b)=>mData[b]-mData[a]);
   const mVals=mLabels.map(m=>mData[m]);
   const mColors=mLabels.map(m=>MALL_COLORS[m]||'#888');
+  const mTot=mVals.reduce((a,b)=>a+b,0);
   const ctxPM=document.getElementById('bg-pie-mall');
-  if(ctxPM) charts['bg-pie-mall']=new Chart(ctxPM,{type:'doughnut',data:{labels:mLabels,datasets:[{data:mVals,backgroundColor:mColors,borderWidth:1,borderColor:'#1a1d27'}]},options:{responsive:true,plugins:{legend:{position:'right',labels:{color:'#8b8fa8',boxWidth:10,font:{size:10}}},tooltip:{callbacks:{label:ctx=>{const tot=mVals.reduce((a,b)=>a+b,0);return`${ctx.label}: ${ctx.parsed.toFixed(1)}万 (${(ctx.parsed/tot*100).toFixed(1)}%)`;}}}}}});
+  if(ctxPM) charts['bg-pie-mall']=new Chart(ctxPM,{
+    type:'doughnut',
+    data:{labels:mLabels,datasets:[{data:mVals,backgroundColor:mColors,borderWidth:1,borderColor:'#1a1d27'}]},
+    options:makePieOpts(mVals, mTot.toFixed(1)+'万'),
+    plugins:[ChartDataLabels]
+  });
 
   // 帯グラフ：ブランド割合
   const allBrands=[...new Set(DATA.monthly_product.map(r=>r['ブランド正規化']))].sort();
