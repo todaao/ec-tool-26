@@ -278,8 +278,8 @@ const fmtN=v=>v==null?'-':v.toLocaleString()+'個';
 function fmtRate(v){if(v==null||!isFinite(v))return '-';const s=(v>=0?'+':'')+v.toFixed(1)+'%';return `<span class="${v>=0?'pos':'neg'}">${s}</span>`;}
 function salesOnDate(d,mall){return SALES.filter(s=>s.mall===mall&&d>=s.start&&d<=s.end)}
 function salesAnyOnDate(d){return SALES.filter(s=>d>=s.start&&d<=s.end)}
-function dateRange(s,e){const r=[];let d=new Date(s),en=new Date(e);while(d<=en){r.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1);}return r;}
-function addDays(d,n){const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().slice(0,10);}
+function dateRange(s,e){const r=[];let d=new Date(s),en=new Date(e);while(d<=en){r.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);d.setDate(d.getDate()+1);}return r;}
+function addDays(d,n){const dt=new Date(d);dt.setDate(dt.getDate()+n);return`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;}
 
 // ═══════════════════════════════════════════
 // PIVOT (日次/週次/月次 × ブランド軸/モール軸 × 金額/数量)
@@ -775,6 +775,8 @@ function renderRankBody(){
 let npSelected=new Set([NEW_PRODUCTS[0]?.name].filter(Boolean));
 
 function fmtMD(dateStr){const[,m,d]=dateStr.split('-').map(Number);return`${m}/${d}`;}
+// UTC問題を避けてローカル日付文字列を返す
+function localStr(dt){return`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;}
 
 function renderNewProd(){
   if(!DATA)return;
@@ -814,15 +816,15 @@ function renderNpCharts(){
       </div>`).join('')
   }</div>`;
   selected.forEach((prod,i)=>{
-    // 発売日が含まれる土曜締め週を起点に4週分算出
+    // 発売日が含まれる土曜締め週を起点に4週分算出（ローカル日付でUTCズレ回避）
     const launchDt=new Date(prod.launch+'T00:00:00');
-    const daysToSat=(6-launchDt.getDay()+7)%7; // 0なら当日土曜
+    const jsDay=launchDt.getDay(); // 0=日 6=土
+    const daysToSat=(6-jsDay+7)%7; // 当日土曜なら0
     const sat0=new Date(launchDt); sat0.setDate(launchDt.getDate()+daysToSat);
-    const toStr=dt=>dt.toISOString().slice(0,10);
-    const weeks=[0,1,2,3].map(i=>{
-      const we=new Date(sat0); we.setDate(sat0.getDate()+7*i);
+    const weeks=[0,1,2,3].map(n=>{
+      const we=new Date(sat0); we.setDate(sat0.getDate()+7*n);
       const ws=new Date(we);   ws.setDate(we.getDate()-6);
-      return {label:`${i+1}週目`, weekEnd:toStr(we), start:toStr(ws), end:toStr(we)};
+      return {label:`${n+1}週目`, weekEnd:localStr(we), start:localStr(ws), end:localStr(we)};
     });
     const xLabels=weeks.map(w=>[w.label,`${fmtMD(w.start)}〜${fmtMD(w.end)}`]);
     const src=DATA.new_product_weekly;
@@ -961,7 +963,6 @@ function renderBudget(){
       tooltip:{callbacks:{label:ctx=>{const tot=vals.reduce((a,b)=>a+b,0);return`${ctx.label}: ${ctx.parsed.toFixed(1)}万 (${(ctx.parsed/tot*100).toFixed(1)}%)`}}},
       centerText:{label:centerLabel}}});
   if(!Chart.registry.plugins.get('centerText')){Chart.register({id:'centerText',afterDraw(chart){const cfg=chart.config.options?.plugins?.centerText;if(!cfg?.label)return;const{ctx,chartArea:{left,right,top,bottom}}=chart;const cx=(left+right)/2,cy=(top+bottom)/2;ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='bold 13px sans-serif';ctx.fillStyle='#e8eaf6';ctx.fillText(cfg.label,cx,cy);ctx.restore();}});}
-  // 円グラフ：ブランド別
   const brandData=byBrandMonth[bgSelectedMonth]||{};
   const bLabels=Object.keys(brandData).sort((a,b)=>brandData[b]-brandData[a]);
   const bVals=bLabels.map(b=>brandData[b]);
@@ -969,7 +970,6 @@ function renderBudget(){
   const bTot=bVals.reduce((a,b)=>a+b,0);
   const ctxPB=document.getElementById('bg-pie-brand');
   if(ctxPB) charts['bg-pie-brand']=new Chart(ctxPB,{type:'doughnut',data:{labels:bLabels,datasets:[{data:bVals,backgroundColor:bColors,borderWidth:1,borderColor:'#1a1d27'}]},options:makePieOpts(bVals,bTot.toFixed(1)+'万'),plugins:[ChartDataLabels]});
-  // 円グラフ：モール別
   const mData={};
   mallOrder.forEach(m=>{const v=byMallMonth[m]?.[bgSelectedMonth]||0;if(v>0)mData[m]=v;});
   const mLabels=Object.keys(mData).sort((a,b)=>mData[b]-mData[a]);
