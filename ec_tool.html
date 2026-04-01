@@ -662,12 +662,10 @@ let rkMall='all', rkSort='amount', rkStart='', rkEnd='';
 
 function renderRanking(){
   if(!DATA)return;
-  // Init date range from available week_end values in brand_pivot
-  if(!rkStart||!rkEnd){
-    const weeks=DATA.brand_pivot.map(r=>r.week_end).filter(Boolean).sort();
-    if(!rkStart) rkStart=weeks[0]||Object.keys(DATA.daily).sort()[0]||'';
-    if(!rkEnd)   rkEnd=weeks[weeks.length-1]||Object.keys(DATA.daily).sort().slice(-1)[0]||'';
-  }
+  // Init date range from available data
+  const dates=Object.keys(DATA.daily).sort();
+  if(!rkStart) rkStart=dates[0]||'';
+  if(!rkEnd)   rkEnd=dates[dates.length-1]||'';
 
   const mallOpts=['all','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','★自社国内EC','yahoo','LINE GIFT','TANP','メルカリ'];
 
@@ -702,8 +700,7 @@ function renderRankBody(){
   });
 
   // Filter brand_pivot by date range and mall
-  // brand_pivot has week_end (not date_str); include weeks that overlap the selected range
-  let rows=DATA.brand_pivot.filter(r=>r.week_end>=rkStart&&r.week_end<=rkEnd);
+  let rows=DATA.brand_pivot.filter(r=>r.date_str>=rkStart&&r.date_str<=rkEnd);
   if(rkMall!=='all') rows=rows.filter(r=>r['モール']===rkMall);
 
   // Aggregate by 商品名＋型番（SKU単位）＋ブランド
@@ -1017,9 +1014,9 @@ function buildMallAccordion(mallOrder,targets,byMallMonth,byMallDay,months,avail
         <div class="tbl-wrap"><table style="font-size:11px">
           <thead><tr><th>　</th>${months.map(m=>`<th class="num">${m}月</th>`).join('')}</tr></thead>
           <tbody>
-            <tr><td style="color:var(--tx2)">目標</td>${months.map(m=>`<td class="num">${t[m]||'-'}</td>`).join('')}</tr>
+            <tr><td style="color:var(--tx2)">目標</td>${months.map(m=>`<td class="num">${t[String(m)]?Number(t[String(m)]).toFixed(0):'-'}</td>`).join('')}</tr>
             <tr><td style="color:var(--tx2)">実績</td>${months.map(m=>`<td class="num">${a[m]?a[m].toFixed(1):'-'}</td>`).join('')}</tr>
-            <tr><td style="color:var(--tx2)">達成率</td>${months.map(m=>{const tv=t[m]||0,av=a[m]||0;if(!tv)return'<td class="num">-</td>';const r=av/tv*100,c=r>=100?'var(--ac2)':r>=80?'#f5a623':'#ff6b6b';return`<td class="num" style="color:${c}">${r.toFixed(0)}%</td>`;}).join('')}</tr>
+            <tr><td style="color:var(--tx2)">達成率</td>${months.map(m=>{const tv=t[String(m)]||0,av=a[m]||0;if(!tv)return'<td class="num">-</td>';const r=av/tv*100,c=r>=100?'var(--ac2)':r>=80?'#f5a623':'#ff6b6b';return`<td class="num" style="color:${c}">${r.toFixed(0)}%</td>`;}).join('')}</tr>
           </tbody>
         </table></div>
       </div>
