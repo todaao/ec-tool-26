@@ -370,7 +370,6 @@ function renderPivotTable(){
   th+='</tr>';
 
   // テーブル本体
-  // 全体合計行
   const totalVals=colHeaders.map(c=>getVal({},c));
   const totalRow=`<tr style="background:rgba(92,115,242,.12);font-weight:700;border-bottom:2px solid var(--ac)"><td style="color:var(--ac)">【全体合計】</td>${totalVals.map(v=>`<td class="num" style="color:var(--ac)">${fmtV(v)||'-'}</td>`).join('')}</tr>`;
   let tbody=totalRow;
@@ -590,9 +589,30 @@ function renderChangeBody(){
   });
 
   const src=chgPeriod==='weekly'?DATA.weekly_product:DATA.monthly_product;
-  const periods=chgPeriod==='weekly'
-    ?Object.keys(DATA.weekly).sort()
-    :[...new Set(src.map(r=>`${r.year}-${String(r.month).padStart(2,'0')}`))].sort();
+
+  // データが揃っている期間のみを比較対象にする
+  const lastDate=Object.keys(DATA.daily).sort().slice(-1)[0]||''; // 最終データ日付
+
+  let periods;
+  if(chgPeriod==='weekly'){
+    // week_end（土曜）がlastDate以前の週のみ「データ揃い」とみなす
+    periods=Object.keys(DATA.weekly).sort().filter(we=>we<=lastDate);
+  } else {
+    // 月次：最終日付の月が月末まで揃っているか確認
+    const lastDt=new Date(lastDate+'T00:00:00');
+    const lastY=lastDt.getFullYear(), lastM=lastDt.getMonth()+1;
+    const lastDayOfMonth=new Date(lastY,lastM,0).getDate(); // その月の末日
+    const lastMonthComplete=lastDt.getDate()>=lastDayOfMonth; // 月末まであるか
+    periods=[...new Set(src.map(r=>`${r.year}-${String(r.month).padStart(2,'0')}`))].sort()
+      .filter(p=>{
+        const [py,pm]=p.split('-').map(Number);
+        if(py<lastY) return true;          // 過去年は無条件OK
+        if(py===lastY&&pm<lastM) return true; // 同年で前月までOK
+        if(py===lastY&&pm===lastM) return lastMonthComplete; // 当月は末日まで揃っている場合のみ
+        return false;
+      });
+  }
+
   if(periods.length<2){body.innerHTML='<div class="no-data">比較に必要なデータが不足しています</div>';return;}
 
   const [cur,prev]=[periods[periods.length-1],periods[periods.length-2]];
