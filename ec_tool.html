@@ -1395,16 +1395,40 @@ async function changePw(){
 }
 
 // ─── CSV EXPORT ───
+const CSV_PW='toda2026';
+let _csvPendingRows=null, _csvPendingFile=null;
+
 function downloadCSV(rows, filename){
+  _csvPendingRows=rows;
+  _csvPendingFile=filename;
+  document.getElementById('csv-pw-input').value='';
+  document.getElementById('csv-pw-err').textContent='';
+  const ov=document.getElementById('csv-pw-overlay');
+  ov.style.display='flex';
+  setTimeout(()=>document.getElementById('csv-pw-input').focus(),80);
+}
+function csvPwClose(){
+  document.getElementById('csv-pw-overlay').style.display='none';
+  _csvPendingRows=null;_csvPendingFile=null;
+}
+function csvPwCheck(){
+  const pw=document.getElementById('csv-pw-input').value;
+  if(pw!==CSV_PW){
+    document.getElementById('csv-pw-err').textContent='パスワードが正しくありません';
+    document.getElementById('csv-pw-input').select();
+    return;
+  }
+  document.getElementById('csv-pw-overlay').style.display='none';
   const bom='\uFEFF';
   const NL='\n';
-  const csv=bom+rows.map(r=>r.map(v=>{
+  const csv=bom+_csvPendingRows.map(r=>r.map(v=>{
     const s=String(v==null?'':v);
     return (s.includes(',')||s.includes('"')||s.includes(NL))?'"'+s.replace(/"/g,'""')+'"':s;
   }).join(',')).join(NL);
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
-  a.download=filename;a.click();URL.revokeObjectURL(a.href);
+  a.download=_csvPendingFile;a.click();URL.revokeObjectURL(a.href);
+  _csvPendingRows=null;_csvPendingFile=null;
 }
 
 function exportDailyCSV(){
@@ -1473,5 +1497,23 @@ window.addEventListener('DOMContentLoaded',async()=>{
   }
 });
 </script>
+<!-- CSV パスワードモーダル -->
+<div id="csv-pw-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:32px 28px;width:340px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.4);text-align:center;">
+    <div style="font-size:28px;margin-bottom:12px;">🔒</div>
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px;color:var(--fg);">CSV出力 — パスワード確認</div>
+    <div style="font-size:12px;color:var(--fg2);margin-bottom:20px;line-height:1.6;">
+      ダウンロードしたい方は<br><strong style="color:var(--ac);">戸田にパスワードを尋ねてください</strong>
+    </div>
+    <input id="csv-pw-input" type="password" placeholder="パスワードを入力"
+      style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:14px;font-family:inherit;margin-bottom:10px;outline:none;"
+      onkeydown="if(event.key==='Enter')csvPwCheck()">
+    <div id="csv-pw-err" style="color:#e55;font-size:12px;min-height:18px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:10px;justify-content:center;">
+      <button onclick="csvPwClose()" style="padding:8px 18px;border:1px solid var(--border);background:transparent;color:var(--fg2);border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;">キャンセル</button>
+      <button onclick="csvPwCheck()" style="padding:8px 18px;border:none;background:var(--ac);color:#000;border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;">ダウンロード</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
