@@ -678,30 +678,50 @@ function rkWeekLabel(ws,we){
   return`${fmt(ws)}〜${fmt(we)}`;
 }
 
+// ランキング粒度モード: 'week' | 'month'
+let rkGranularity='week';
+let rkMonth='';
+
 function renderRanking(){
   if(!DATA)return;
 
-  // 週リストを week_start ベースで一意に収集
+  // 週リスト
   const weekMap={};
   DATA.brand_pivot.forEach(r=>{if(r.week_start&&r.week_end) weekMap[r.week_start]=r.week_end;});
   const allWeeks=Object.keys(weekMap).sort();
 
+  // 月リスト（'YYYY-MM'形式）
+  const monthSet=new Set();
+  DATA.brand_pivot.forEach(r=>{if(r.month&&r.year) monthSet.add(`${r.year}-${String(r.month).padStart(2,'0')}`);});
+  const allMonths=[...monthSet].sort();
+
   // 初期値・不正値の補正
   if(!rkStart||!weekMap[rkStart]) rkStart=allWeeks[0]||'';
   if(!rkEnd  ||!weekMap[rkEnd])   rkEnd=allWeeks[allWeeks.length-1]||'';
+  if(!rkMonth||!allMonths.includes(rkMonth)) rkMonth=allMonths[allMonths.length-1]||'';
 
   const mallOpts=['all','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','★自社国内EC','yahoo','LINE GIFT','TANP','メルカリ'];
   const weekOpts=allWeeks.map(ws=>`<option value="${ws}">${rkWeekLabel(ws,weekMap[ws])}</option>`).join('');
+  const monthOpts=allMonths.map(ym=>{const[y,m]=ym.split('-');return`<option value="${ym}">${y}年${parseInt(m)}月</option>`;}).join('');
+
+  const periodUI=rkGranularity==='week'
+    ?`<label style="font-size:11px;color:var(--tx2)">開始週：</label>
+       <select class="filter-sel" id="rk-start" onchange="rkStart=this.value;renderRankBody()">${weekOpts}</select>
+       <span style="color:var(--tx3)">〜</span>
+       <label style="font-size:11px;color:var(--tx2)">終了週：</label>
+       <select class="filter-sel" id="rk-end" onchange="rkEnd=this.value;renderRankBody()">${weekOpts}</select>`
+    :`<label style="font-size:11px;color:var(--tx2)">月：</label>
+       <select class="filter-sel" id="rk-month" onchange="rkMonth=this.value;renderRankBody()">${monthOpts}</select>`;
 
   document.getElementById('pane-ranking').innerHTML=`
     <div class="card">
       <div class="card-title">売れ筋 TOP30（SKU単位）</div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-        <label style="font-size:11px;color:var(--tx2)">開始週：</label>
-        <select class="filter-sel" id="rk-start" onchange="rkStart=this.value;renderRankBody()">${weekOpts}</select>
-        <span style="color:var(--tx3)">〜</span>
-        <label style="font-size:11px;color:var(--tx2)">終了週：</label>
-        <select class="filter-sel" id="rk-end" onchange="rkEnd=this.value;renderRankBody()">${weekOpts}</select>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <div class="btn-group" style="margin-bottom:0">
+          <button class="btn ${rkGranularity==='week'?'active':''}" onclick="rkGranularity='week';renderRanking()">週単位</button>
+          <button class="btn ${rkGranularity==='month'?'active':''}" onclick="rkGranularity='month';renderRanking()">月単位</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${periodUI}</div>
       </div>
       <div class="btn-group">
         ${mallOpts.map(m=>`<button class="btn ${rkMall===m?'active':''}" onclick="rkMall='${m}';renderRankBody()">${m==='all'?'全て':m}</button>`).join('')}
@@ -709,16 +729,25 @@ function renderRanking(){
       <div id="rk-body"></div>
     </div>`;
 
-  document.getElementById('rk-start').value=rkStart;
-  document.getElementById('rk-end').value=rkEnd;
+  if(rkGranularity==='week'){
+    document.getElementById('rk-start').value=rkStart;
+    document.getElementById('rk-end').value=rkEnd;
+  } else {
+    document.getElementById('rk-month').value=rkMonth;
+  }
   renderRankBody();
 }
 
 function renderRankBody(){
   // セレクトの選択値を同期
-  const si=document.getElementById('rk-start'), ei=document.getElementById('rk-end');
-  if(si) si.value=rkStart;
-  if(ei) ei.value=rkEnd;
+  if(rkGranularity==='week'){
+    const si=document.getElementById('rk-start'),ei=document.getElementById('rk-end');
+    if(si) si.value=rkStart;
+    if(ei) ei.value=rkEnd;
+  } else {
+    const sm=document.getElementById('rk-month');
+    if(sm) sm.value=rkMonth;
+  }
 
   // Update mall buttons
   document.querySelectorAll('#pane-ranking .btn-group .btn').forEach(b=>{
@@ -727,9 +756,16 @@ function renderRankBody(){
     if(m!==undefined) b.className='btn '+(rkMall===m?'active':'');
   });
 
-  // Filter brand_pivot by date range and mall（week_start＝週の開始日ベースでフィルタ）
-  // → 4/30発売商品のように週またぎになる場合も、発売日が含まれる週が正しく拾われる
-  let rows=DATA.brand_pivot.filter(r=>r.week_start>=rkStart&&r.week_start<=rkEnd);
+  // Filter brand_pivot by date range and mall
+  let rows;
+  if(rkGranularity==='week'){
+    // week_start ベース（週の開始日で比較）
+    rows=DATA.brand_pivot.filter(r=>r.week_start>=rkStart&&r.week_start<=rkEnd);
+  } else {
+    // 月モード：year/month で一致する行を抽出
+    const[ry,rm]=rkMonth.split('-').map(Number);
+    rows=DATA.brand_pivot.filter(r=>r.year===ry&&r.month===rm);
+  }
   if(rkMall!=='all') rows=rows.filter(r=>r['モール']===rkMall);
 
   // Aggregate by 商品名＋型番（SKU単位）＋ブランド
