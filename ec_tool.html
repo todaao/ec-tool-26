@@ -673,36 +673,49 @@ function renderChangeProd(cur,prev){
 // ═══════════════════════════════════════════
 let rkMall='all', rkSort='amount', rkStart='', rkEnd='';
 
+function rkWeekLabel(ws,we){
+  const fmt=d=>{const dt=new Date(d+'T00:00:00');const days=['日','月','火','水','木','金','土'];return`${dt.getMonth()+1}/${dt.getDate()}(${days[dt.getDay()]})`;};
+  return`${fmt(ws)}〜${fmt(we)}`;
+}
+
 function renderRanking(){
   if(!DATA)return;
-  // Init date range from brand_pivot week_start（週の開始日ベースで期間を判定）
-  if(!rkStart||!rkEnd){
-    const weeks=DATA.brand_pivot.map(r=>r.week_start).filter(Boolean).sort();
-    if(!rkStart) rkStart=weeks[0]||'';
-    if(!rkEnd)   rkEnd=weeks[weeks.length-1]||'';
-  }
+
+  // 週リストを week_start ベースで一意に収集
+  const weekMap={};
+  DATA.brand_pivot.forEach(r=>{if(r.week_start&&r.week_end) weekMap[r.week_start]=r.week_end;});
+  const allWeeks=Object.keys(weekMap).sort();
+
+  // 初期値・不正値の補正
+  if(!rkStart||!weekMap[rkStart]) rkStart=allWeeks[0]||'';
+  if(!rkEnd  ||!weekMap[rkEnd])   rkEnd=allWeeks[allWeeks.length-1]||'';
 
   const mallOpts=['all','1.Amazon','2.Qoo10','3.楽天','ZOZO','4.TikTokShop','★自社国内EC','yahoo','LINE GIFT','TANP','メルカリ'];
+  const weekOpts=allWeeks.map(ws=>`<option value="${ws}">${rkWeekLabel(ws,weekMap[ws])}</option>`).join('');
 
   document.getElementById('pane-ranking').innerHTML=`
     <div class="card">
       <div class="card-title">売れ筋 TOP30（SKU単位）</div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-        <label style="font-size:11px;color:var(--tx2)">期間：</label>
-        <input type="date" class="input-date" id="rk-start" value="${rkStart}" onchange="rkStart=this.value;renderRankBody()">
+        <label style="font-size:11px;color:var(--tx2)">開始週：</label>
+        <select class="filter-sel" id="rk-start" onchange="rkStart=this.value;renderRankBody()">${weekOpts}</select>
         <span style="color:var(--tx3)">〜</span>
-        <input type="date" class="input-date" id="rk-end" value="${rkEnd}" onchange="rkEnd=this.value;renderRankBody()">
+        <label style="font-size:11px;color:var(--tx2)">終了週：</label>
+        <select class="filter-sel" id="rk-end" onchange="rkEnd=this.value;renderRankBody()">${weekOpts}</select>
       </div>
       <div class="btn-group">
         ${mallOpts.map(m=>`<button class="btn ${rkMall===m?'active':''}" onclick="rkMall='${m}';renderRankBody()">${m==='all'?'全て':m}</button>`).join('')}
       </div>
       <div id="rk-body"></div>
     </div>`;
+
+  document.getElementById('rk-start').value=rkStart;
+  document.getElementById('rk-end').value=rkEnd;
   renderRankBody();
 }
 
 function renderRankBody(){
-  // Sync date inputs if they exist
+  // セレクトの選択値を同期
   const si=document.getElementById('rk-start'), ei=document.getElementById('rk-end');
   if(si) si.value=rkStart;
   if(ei) ei.value=rkEnd;
