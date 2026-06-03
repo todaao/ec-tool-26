@@ -192,6 +192,10 @@ body { min-height: 100vh; padding: 24px 20px 60px; }
   font-style: italic;
 }
 
+.result-sku {
+  font-size: 12px; color: var(--text-muted);
+  margin-bottom: 10px;
+}
 .result-note {
   font-size: 11px; color: var(--text-muted);
   margin-top: 6px;
@@ -587,6 +591,7 @@ function renderResult() {
         <span class="jan-badge" style="color:var(--text-muted)">${res.info.brand}</span>
         <span class="stock-badge">残在庫 ${res.stockQty.toLocaleString()}個</span>
       </div>
+      <div class="result-sku">SKU：${res.info.sku || '—'}</div>
     `;
 
     // テーブル
@@ -700,10 +705,11 @@ function buildOutputData() {
     });
   });
 
-  // ヘッダー行
-  const prodNames = calcResult.map(r => r.info.name);
-  const janRow    = ['JANコード',  ...calcResult.map(r => r.jan)];
-  const totalRow  = ['割り振り合計', ...calcResult.map(r =>
+  // ヘッダー行（商品名・SKU・JAN・合計を別行に）
+  const nameRow  = ['商品名',    ...calcResult.map(r => r.info.name)];
+  const skuRow   = ['SKU',      ...calcResult.map(r => r.info.sku)];
+  const janRow   = ['JANコード', ...calcResult.map(r => r.jan)];
+  const totalRow = ['割り振り合計', ...calcResult.map(r =>
     Object.values(r.allocations).reduce((s,v)=>s+v,0)
   )];
 
@@ -711,7 +717,6 @@ function buildOutputData() {
     const isActive = activeMalls.has(mallKey);
     const cols = calcResult.map(res => {
       const productBrand = res.info.brand;
-      // この商品に関係するショップか
       const relevant = shop.brands === null || shop.brands.includes(productBrand);
       if (!relevant) return '—';
       if (!isActive) return '除外';
@@ -720,7 +725,7 @@ function buildOutputData() {
     return [label, ...cols];
   });
 
-  return [['', ...prodNames], janRow, totalRow, [], ...dataRows];
+  return [nameRow, skuRow, janRow, totalRow, [], ...dataRows];
 }
 
 function copyTSV() {
