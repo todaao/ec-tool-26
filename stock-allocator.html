@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>在庫割り振りツール</title>
+<style>
+:root {
+  --bg: #f7f6f3;
+  --surface: #ffffff;
+  --border: #e2e0da;
+  --border-light: #eeede9;
+  --text: #1a1a18;
+  --text-muted: #7a7870;
+  --text-hint: #aeaca6;
+  --accent: #2563eb;
+  --accent-bg: #eff4ff;
+  --accent-border: #bfcffd;
+  --success: #16a34a;
+  --success-bg: #f0fdf4;
+  --warn: #d97706;
+  --warn-bg: #fffbeb;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --exclude-bg: #f4f3f0;
+  --exclude-text: #a09e99;
+  --radius: 8px;
+  --radius-sm: 5px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { min-height: 100vh; padding: 24px 20px 60px; }
+
+.page-header { margin-bottom: 24px; }
+.page-header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+.page-header p { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 12px;
+}
+.card-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+}
+
+/* モール選択 */
+.mall-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.mall-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 12px; border-radius: 99px; cursor: pointer;
+  font-size: 12px; font-weight: 500; user-select: none;
+  border: 1px solid var(--border);
+  transition: all 0.12s;
+}
+.mall-tag.active {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.mall-tag:not(.active) {
+  background: var(--bg);
+  color: var(--text-muted);
+}
+.mall-tag:not(.active):hover { border-color: #ccc; color: var(--text); }
+.mall-tag .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; opacity: 0.6;
+}
+
+/* JAN入力テーブル */
+.jan-table { width: 100%; border-collapse: collapse; }
+.jan-table th {
+  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  text-align: left; padding: 0 8px 8px;
+  border-bottom: 1px solid var(--border-light);
+  letter-spacing: 0.04em;
+}
+.jan-table th:nth-child(2) { width: 90px; }
+.jan-table th:nth-child(3) { width: 36px; }
+.jan-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-light); }
+.jan-table tr:last-child td { border-bottom: none; }
+.jan-table input[type="text"], .jan-table input[type="number"] {
+  width: 100%; height: 32px; padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+  transition: border-color 0.1s;
+  font-family: inherit;
+}
+.jan-table input:focus { outline: none; border-color: var(--accent); background: #fff; }
+.jan-table input[type="number"] { text-align: right; }
+.product-preview {
+  font-size: 12px; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 280px;
+}
+.product-preview.found { color: var(--success); }
+.product-preview.error { color: var(--danger); }
+.product-preview.set-error { color: var(--warn); }
+.del-btn {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: none; background: none; cursor: pointer;
+  color: var(--text-hint); font-size: 16px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.1s;
+}
+.del-btn:hover { background: var(--danger-bg); color: var(--danger); }
+
+.table-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+.add-row-btn {
+  font-size: 12px; color: var(--text-muted);
+  background: none; border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 12px; cursor: pointer;
+  transition: all 0.1s;
+}
+.add-row-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.run-btn {
+  padding: 8px 22px;
+  background: var(--accent);
+  color: #fff;
+  border: none; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer; letter-spacing: 0.02em;
+  transition: opacity 0.1s;
+}
+.run-btn:hover { opacity: 0.88; }
+.run-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* 結果セクション */
+.result-block { margin-bottom: 16px; }
+.result-header {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-bottom: 8px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
+}
+.result-header .prod-name { font-size: 14px; font-weight: 600; }
+.result-header .jan-badge {
+  font-size: 11px; padding: 2px 8px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 99px; color: var(--text-muted); font-family: monospace;
+}
+.result-header .stock-badge {
+  font-size: 11px; padding: 2px 8px;
+  background: var(--warn-bg); border: 1px solid #fcd34d;
+  border-radius: 99px; color: var(--warn); font-weight: 600;
+}
+
+.alloc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.alloc-table th {
+  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  text-align: left; padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  letter-spacing: 0.04em;
+}
+.alloc-table th.num { text-align: right; }
+.alloc-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-light); vertical-align: middle; }
+.alloc-table tr.excluded { background: var(--exclude-bg); }
+.alloc-table tr.excluded td { color: var(--exclude-text); }
+.alloc-table tr.total-row td { font-weight: 600; border-top: 2px solid var(--border); border-bottom: none; background: var(--bg); }
+
+.bar-wrap { display: flex; align-items: center; gap: 6px; }
+.bar-track { flex: 1; height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 3px; background: var(--accent); }
+.bar-fill.excluded { background: var(--border); }
+.bar-pct { font-size: 11px; color: var(--text-muted); min-width: 32px; text-align: right; }
+
+.alloc-num { font-size: 14px; font-weight: 700; text-align: right; display: block; }
+.alloc-num.zero { color: var(--text-hint); font-weight: 400; font-size: 12px; }
+.excl-label { font-size: 11px; color: var(--exclude-text); }
+.note-label {
+  font-size: 11px; color: var(--text-hint);
+  font-style: italic;
+}
+
+.result-note {
+  font-size: 11px; color: var(--text-muted);
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+}
+
+/* 出力ボタン */
+.output-bar {
+  display: flex; gap: 8px; justify-content: flex-end;
+  margin-top: 4px;
+}
+.out-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 16px; border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 500; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); transition: all 0.1s;
+}
+.out-btn:hover { border-color: var(--accent); color: var(--accent); }
+.out-btn svg { width: 14px; height: 14px; }
+
+.info-msg {
+  font-size: 12px; padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  margin-top: 8px;
+}
+.info-msg.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #fcd34d; }
+.info-msg.info { background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent-border); }
+
+.divider { height: 1px; background: var(--border-light); margin: 16px 0; }
+
+#status-bar {
+  font-size: 12px; color: var(--text-muted);
+  text-align: center; padding: 8px;
+}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>📦 在庫割り振りツール</h1>
+  <p>直近12週の販売実績をもとに、モール別在庫数を試算します</p>
+</div>
+
+<!-- ① モール選択 -->
+<div class="card">
+  <div class="card-title">① 割り振り対象モール</div>
+  <div class="mall-grid" id="mallGrid"></div>
+  <div id="mallNote" style="font-size:11px;color:var(--text-muted);margin-top:8px"></div>
+</div>
+
+<!-- ② JAN入力 -->
+<div class="card">
+  <div class="card-title">② JAN・残在庫 入力</div>
+  <table class="jan-table">
+    <thead>
+      <tr>
+        <th>JANコード</th>
+        <th>残在庫数</th>
+        <th></th>
+        <th>商品情報</th>
+      </tr>
+    </thead>
+    <tbody id="janBody"></tbody>
+  </table>
+  <div class="table-footer">
+    <button class="add-row-btn" onclick="addRow()">＋ 行を追加（最大10件）</button>
+    <button class="run-btn" id="runBtn" onclick="calculate()">試算する →</button>
+  </div>
+</div>
+
+<!-- ③ 結果 -->
+<div class="card" id="resultCard" style="display:none">
+  <div class="card-title">③ 割り振り試算結果</div>
+  <div id="resultBody"></div>
+  <div class="output-bar" id="outputBar" style="display:none">
+    <button class="out-btn" onclick="copyTSV()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      Excelコピー（タブ区切り）
+    </button>
+    <button class="out-btn" onclick="downloadCSV()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      CSVダウンロード
+    </button>
+  </div>
+</div>
+
+<div id="status-bar"></div>
+
+<script>
+// ─── 設定 ───────────────────────────────────────────────
+const WEEKS = 12;
+
+// モール定義（順序・ラベル・サブショップ構造）
+const MALL_DEFS = [
+  { key: '★自社国内EC', label: '自社EC', shops: [
+    { row: '自社TOKOTOYZ', brands: ['1.TOKOTOYZ'] },
+    { row: '自社MF',       brands: ['2.MilleFée','Maison de MilleFée'] },
+    { row: '自社FCC',      brands: ['4.fractionalCC','HiCA'] },
+    { row: '自社COSMEDELi',brands: ['COLORROSE','Emery Emily','FOCALLURE','GOGO TALES','HONEY BEAUTY','jill leen.','LTLYL'] },
+  ]},
+  { key: '2.Qoo10', label: 'Qoo10', shops: [
+    { row: 'Qoo10TOKOTOYZ', brands: ['1.TOKOTOYZ'] },
+    { row: 'Qoo10MF',       brands: ['2.MilleFée','Maison de MilleFée'] },
+    { row: 'Qoo10FCC',      brands: ['4.fractionalCC','HiCA'] },
+    { row: 'Qoo10COSMEDELi',brands: ['COLORROSE','Emery Emily','FOCALLURE','GOGO TALES','HONEY BEAUTY','jill leen.','LTLYL'] },
+  ]},
+  { key: '4.TikTokShop', label: 'TikTokShop', shops: [
+    { row: 'TikTokTOKOTOYZ', brands: ['1.TOKOTOYZ'] },
+    { row: 'TikTokMF',       brands: ['2.MilleFée','Maison de MilleFée'] },
+    { row: 'TikTokFCC',      brands: ['4.fractionalCC','HiCA'] },
+  ]},
+  { key: '3.楽天',    label: '楽天',     shops: [{ row: '楽天',     brands: null }] },
+  { key: 'yahoo',     label: 'Yahoo',    shops: [{ row: 'Yahoo',    brands: null }] },
+  { key: '1.Amazon',  label: 'Amazon',   shops: [{ row: 'Amazon',   brands: null }] },
+  { key: 'ZOZO',      label: 'ZOZO',     shops: [{ row: 'ZOZO',     brands: null }] },
+  { key: 'LINE GIFT', label: 'LINE GIFT',shops: [{ row: 'LINE GIFT',brands: null }] },
+  { key: 'TANP',      label: 'TANP',     shops: [{ row: 'TANP',     brands: null }] },
+  { key: 'メルカリ',  label: 'メルカリ', shops: [{ row: 'メルカリ', brands: null }] },
+];
+
+// ブランド正規化マップ（generate_data.pyのBRAND_MAPから）
+const BRAND_MAP = {
+  'セット：MF':'2.MilleFée','セット：TOKOTOYZ':'1.TOKOTOYZ',
+  'セット：JL':'jill leen.','セット：CD':'jill leen.',
+  'セット：FCC':'4.fractionalCC','セット：HiCA':'HiCA','セット：EE':'Emery Emily',
+};
+const SET_BRANDS = new Set(Object.keys(BRAND_MAP));
+
+// ─── State ───────────────────────────────────────────────
+let ecData = null;
+let activeMalls = new Set(['★自社国内EC','2.Qoo10','4.TikTokShop','3.楽天','yahoo','1.Amazon']);
+let rows = [];
+let calcResult = null;
+
+// ─── データ読み込み ───────────────────────────────────────
+async function loadData() {
+  setStatus('ec_data.json を読み込み中...');
+  try {
+    const res = await fetch('./ec_data.json');
+    if (!res.ok) throw new Error('ファイルが見つかりません');
+    ecData = await res.json();
+    setStatus(`✅ データ読み込み完了（生成日時: ${ecData.generated_at ? ecData.generated_at.slice(0,16) : '不明'}）`);
+    initMallGrid();
+    addRow(); addRow(); addRow();
+  } catch(e) {
+    setStatus('❌ ec_data.json の読み込みに失敗しました: ' + e.message);
+  }
+}
+
+function setStatus(msg) {
+  document.getElementById('status-bar').textContent = msg;
+}
+
+// ─── モールグリッド ───────────────────────────────────────
+function initMallGrid() {
+  const g = document.getElementById('mallGrid');
+  g.innerHTML = '';
+  MALL_DEFS.forEach(m => {
+    const tag = document.createElement('span');
+    tag.className = 'mall-tag' + (activeMalls.has(m.key) ? ' active' : '');
+    tag.innerHTML = `<span class="dot"></span>${m.label}`;
+    tag.onclick = () => {
+      if (activeMalls.has(m.key)) activeMalls.delete(m.key);
+      else activeMalls.add(m.key);
+      tag.classList.toggle('active');
+    };
+    g.appendChild(tag);
+  });
+}
+
+// ─── JAN入力行 ───────────────────────────────────────────
+function addRow() {
+  if (rows.length >= 10) return;
+  const id = Date.now() + Math.random();
+  rows.push({ id, jan: '', qty: '', info: null });
+  renderJanTable();
+}
+
+function delRow(id) {
+  rows = rows.filter(r => r.id !== id);
+  if (rows.length === 0) addRow();
+  renderJanTable();
+}
+
+function renderJanTable() {
+  const tbody = document.getElementById('janBody');
+  tbody.innerHTML = '';
+  rows.forEach((row, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" maxlength="13" placeholder="4580805XXXXXXX"
+        value="${row.jan}" oninput="onJanInput(${i}, this.value)"
+        style="font-family:monospace;letter-spacing:0.05em"></td>
+      <td><input type="number" min="0" placeholder="0"
+        value="${row.qty}" oninput="onQtyInput(${i}, this.value)"></td>
+      <td><button class="del-btn" onclick="delRow(${row.id})" title="削除">×</button></td>
+      <td><span class="product-preview ${row.info ? (row.info.isSet ? 'set-error' : 'found') : (row.jan.length===13 ? 'error' : '')}" id="preview_${i}">
+        ${getPreviewText(row)}
+      </span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function getPreviewText(row) {
+  if (!row.jan || row.jan.length < 13) return '';
+  if (!ecData) return '— データ未読み込み';
+  if (!ecData.jan_map) return '⚠ ec_data.json が古い形式です。generate_data.py を再実行してください';
+  if (row.info === null) return '— JANが見つかりません（実績のない商品、またはJAN未登録）';
+  if (row.info.isSet) return '⚠ セット品JANです。構成品の単品JANで入力してください';
+  if (row.info.noMap) return '⚠ generate_data.py の再実行が必要です';
+  return `✓ ${row.info.brand} ／ ${row.info.name}（${row.info.sku}）`;
+}
+
+function onJanInput(i, val) {
+  rows[i].jan = val.trim();
+  rows[i].info = undefined;
+  if (val.length === 13 && ecData) {
+    rows[i].info = lookupJan(val);
+  } else {
+    rows[i].info = null;
+  }
+  const span = document.getElementById('preview_' + i);
+  if (span) {
+    span.className = 'product-preview ' +
+      (rows[i].info ? (rows[i].info.isSet ? 'set-error' : 'found') :
+       (val.length===13 ? 'error' : ''));
+    span.textContent = getPreviewText(rows[i]);
+  }
+}
+
+function onQtyInput(i, val) {
+  rows[i].qty = val;
+}
+
+// ─── JAN検索（jan_map から直接ルックアップ） ────────────────
+function lookupJan(jan) {
+  if (!ecData) return null;
+  if (!ecData.jan_map) {
+    // 古いec_data.jsonの場合（jan_map未生成）
+    return { isSet: false, noMap: true, name: '（要generate_data.py再実行）', sku: '', brand: '?' };
+  }
+  const entry = ecData.jan_map[jan];
+  if (!entry) return null;
+  if (SET_BRANDS.has(entry.brand)) return { isSet: true };
+  return { isSet: false, brand: entry.brand, name: entry.name, sku: entry.sku };
+}
+
+// ─── 試算ロジック ─────────────────────────────────────────
+function calculate() {
+  if (!ecData) { alert('データが読み込まれていません'); return; }
+
+  const valid = rows.filter(r => r.jan.length===13 && r.qty > 0);
+  if (valid.length === 0) { alert('有効なJAN・在庫数を入力してください'); return; }
+
+  // 直近12週を確定
+  const bp = ecData.brand_pivot;
+  const bpCols = bp.cols;
+  const iiWeekEnd = bpCols.indexOf('week_end');
+  const iiBrand   = bpCols.indexOf('ブランド正規化');
+  const iiName    = bpCols.indexOf('商品名');
+  const iiSku     = bpCols.indexOf('型番');
+  const iiMall    = bpCols.indexOf('モール');
+  const iiQty     = bpCols.indexOf('売上個数');
+
+  // 全週リスト
+  const allWeeks = [...new Set(bp.rows.map(r => r[iiWeekEnd]))].sort();
+  const recentWeeks = new Set(allWeeks.slice(-WEEKS));
+
+  calcResult = [];
+
+  valid.forEach(row => {
+    // セット品チェック
+    if (row.info && row.info.isSet) return;
+
+    // 商品名・ブランド特定
+    const info = row.info || lookupJan(row.jan);
+    if (!info || info.isSet) return;
+
+    const stockQty = parseInt(row.qty) || 0;
+
+    // 直近12週のモール×ブランド別数量集計
+    // キー: mallKey -> qty
+    const mallQty = {}; // mallKey (MALL_DEFS[].key) -> total qty
+    const mallBrandQty = {}; // mallKey -> brand -> qty
+
+    // jan_mapから商品名・型番を取得して brand_pivot を商品名＋型番でマッチ
+    const targetName = info.name;
+    const targetSku  = info.sku;
+
+    bp.rows.forEach(r => {
+      if (!recentWeeks.has(r[iiWeekEnd])) return;
+      const rName = String(r[iiName] || '');
+      const rSku  = String(r[iiSku]  || '');
+      // 商品名と型番の両方が一致する行を対象とする
+      if (rName !== targetName || rSku !== targetSku) return;
+      const mall = r[iiMall];
+      const qty  = r[iiQty] || 0;
+
+      // mallKeyを特定
+      const mallDef = MALL_DEFS.find(m => m.key === mall || normalizeMallKey(mall) === m.key);
+      if (!mallDef) return;
+      mallQty[mallDef.key] = (mallQty[mallDef.key] || 0) + qty;
+      if (!mallBrandQty[mallDef.key]) mallBrandQty[mallDef.key] = {};
+      const br = r[iiBrand];
+      mallBrandQty[mallDef.key][br] = (mallBrandQty[mallDef.key][br] || 0) + qty;
+    });
+
+    // 対象モールの合計
+    const activeMallList = MALL_DEFS.filter(m => activeMalls.has(m.key));
+    const activeTotal = activeMallList.reduce((s, m) => s + (mallQty[m.key] || 0), 0);
+    const allTotal    = MALL_DEFS.reduce((s, m) => s + (mallQty[m.key] || 0), 0);
+
+    // 割り振り計算
+    let allocations = {};
+    if (activeTotal > 0) {
+      let remaining = stockQty;
+      let maxMall = null, maxShare = 0;
+      activeMallList.forEach(m => {
+        const share = (mallQty[m.key] || 0) / activeTotal;
+        const alloc = Math.floor(stockQty * share);
+        allocations[m.key] = alloc;
+        remaining -= alloc;
+        if (share > maxShare) { maxShare = share; maxMall = m.key; }
+      });
+      // 端数を最多販売モールへ
+      if (maxMall && remaining > 0) allocations[maxMall] += remaining;
+    } else {
+      // 実績なし → 均等
+      const each = Math.floor(stockQty / activeMallList.length);
+      let rem = stockQty - each * activeMallList.length;
+      activeMallList.forEach((m, i) => {
+        allocations[m.key] = each + (i === 0 ? rem : 0);
+      });
+    }
+
+    calcResult.push({
+      jan: row.jan, info, stockQty,
+      mallQty, mallBrandQty, allTotal, activeTotal,
+      allocations, activeMallList,
+      noHistory: activeTotal === 0,
+    });
+  });
+
+  renderResult();
+}
+
+function normalizeMallKey(mall) {
+  // データ側のモール名 → MALL_DEFS.key へのフォールバック
+  const map = {
+    '自社': '★自社国内EC', '楽天': '3.楽天', 'Yahoo': 'yahoo',
+    'Amazon': '1.Amazon', 'Qoo10': '2.Qoo10', 'TikTok': '4.TikTokShop',
+    'ZOZO': 'ZOZO', 'LINE GIFT': 'LINE GIFT', 'TANP': 'TANP', 'メルカリ': 'メルカリ',
+  };
+  for (const [k, v] of Object.entries(map)) {
+    if (mall.includes(k)) return v;
+  }
+  return mall;
+}
+
+// ─── 結果描画 ─────────────────────────────────────────────
+function renderResult() {
+  const card = document.getElementById('resultCard');
+  const body = document.getElementById('resultBody');
+  const outBar = document.getElementById('outputBar');
+  card.style.display = '';
+  body.innerHTML = '';
+
+  if (!calcResult || calcResult.length === 0) {
+    body.innerHTML = '<div class="info-msg warn">有効な試算結果がありません。JAN・在庫数を確認してください。</div>';
+    outBar.style.display = 'none';
+    return;
+  }
+
+  calcResult.forEach((res, ri) => {
+    if (ri > 0) {
+      const div = document.createElement('div');
+      div.className = 'divider';
+      body.appendChild(div);
+    }
+
+    const block = document.createElement('div');
+    block.className = 'result-block';
+
+    // ヘッダー
+    block.innerHTML = `
+      <div class="result-header">
+        <span class="prod-name">${res.info.name}</span>
+        <span class="jan-badge">${res.jan}</span>
+        <span class="jan-badge" style="color:var(--text-muted)">${res.info.brand}</span>
+        <span class="stock-badge">残在庫 ${res.stockQty.toLocaleString()}個</span>
+      </div>
+    `;
+
+    // テーブル
+    const table = document.createElement('table');
+    table.className = 'alloc-table';
+    table.innerHTML = `<thead><tr>
+      <th>ショップ行</th>
+      <th class="num">12週合計</th>
+      <th style="width:140px">全体比率</th>
+      <th class="num">割り振り比率</th>
+      <th class="num">割り振り数</th>
+    </tr></thead>`;
+    const tbody = document.createElement('tbody');
+
+    // 全モール行を生成
+    MALL_DEFS.forEach(mallDef => {
+      const isActive = activeMalls.has(mallDef.key);
+      const mallTotalQty = res.mallQty[mallDef.key] || 0;
+      const allMax = Math.max(...MALL_DEFS.map(m => res.mallQty[m.key] || 0), 1);
+      const allocQty = isActive ? (res.allocations[mallDef.key] || 0) : null;
+      const allocShare = isActive && res.activeTotal > 0
+        ? ((res.mallQty[mallDef.key] || 0) / res.activeTotal * 100)
+        : null;
+      const allShare = res.allTotal > 0
+        ? ((mallTotalQty / res.allTotal) * 100).toFixed(1)
+        : '—';
+
+      // ブランド区別ありモール：商品のブランドに対応するショップ行のみ表示
+      const productBrand = res.info.brand;
+      const relevantShops = mallDef.shops.filter(sh =>
+        sh.brands === null || sh.brands.includes(productBrand)
+      );
+
+      relevantShops.forEach(shop => {
+        const tr = document.createElement('tr');
+        if (!isActive) tr.className = 'excluded';
+        tr.innerHTML = `
+          <td>${shop.row}${!isActive ? ' <span class="excl-label">除外</span>' : ''}</td>
+          <td style="text-align:right">${mallTotalQty > 0 ? mallTotalQty.toLocaleString() : '<span style="color:var(--text-hint)">—</span>'}</td>
+          <td>
+            <div class="bar-wrap">
+              <div class="bar-track"><div class="bar-fill${!isActive?' excluded':''}" style="width:${(mallTotalQty/allMax*100).toFixed(1)}%"></div></div>
+              <span class="bar-pct">${allShare}%</span>
+            </div>
+          </td>
+          <td style="text-align:right">${isActive ? (allocShare !== null ? allocShare.toFixed(1)+'%' : '—') : '<span class="excl-label">—</span>'}</td>
+          <td>${isActive
+            ? `<span class="alloc-num${allocQty===0?' zero':''}">${allocQty !== null ? allocQty.toLocaleString() : '—'}</span>`
+            : '<span class="excl-label">除外</span>'
+          }</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    });
+
+    // 合計行
+    const totalAllocated = Object.values(res.allocations).reduce((s,v)=>s+v,0);
+    const totalTr = document.createElement('tr');
+    totalTr.className = 'total-row';
+    totalTr.innerHTML = `
+      <td>合計</td>
+      <td style="text-align:right">${res.allTotal.toLocaleString()}</td>
+      <td></td>
+      <td style="text-align:right">100%</td>
+      <td><span class="alloc-num">${totalAllocated.toLocaleString()}</span></td>
+    `;
+    tbody.appendChild(totalTr);
+    table.appendChild(tbody);
+    block.appendChild(table);
+
+    // 注記
+    const notes = [];
+    if (res.noHistory) notes.push('⚠ 対象モールに直近12週の実績がないため、均等割り振りにしています。');
+    if (notes.length) {
+      const noteDiv = document.createElement('div');
+      noteDiv.className = 'result-note';
+      noteDiv.textContent = notes.join(' ');
+      block.appendChild(noteDiv);
+    }
+
+    body.appendChild(block);
+  });
+
+  outBar.style.display = 'flex';
+}
+
+// ─── 出力（TSV / CSV） ────────────────────────────────────
+function buildOutputData() {
+  if (!calcResult || calcResult.length === 0) return null;
+
+  // 行ラベルを収集（全商品に関係するショップ行）
+  const allRowLabels = [];
+  const seenLabels = new Set();
+
+  // JANコード行・合計行
+  const headerRows = ['JANコード', '割り振り合計'];
+
+  // モール×ショップ行
+  MALL_DEFS.forEach(mallDef => {
+    calcResult.forEach(res => {
+      const productBrand = res.info.brand;
+      mallDef.shops.forEach(shop => {
+        if (shop.brands === null || shop.brands.includes(productBrand)) {
+          const lbl = shop.row;
+          if (!seenLabels.has(lbl)) {
+            seenLabels.add(lbl);
+            allRowLabels.push({ label: lbl, mallKey: mallDef.key, shop });
+          }
+        }
+      });
+    });
+  });
+
+  // ヘッダー行
+  const prodNames = calcResult.map(r => r.info.name);
+  const janRow    = ['JANコード',  ...calcResult.map(r => r.jan)];
+  const totalRow  = ['割り振り合計', ...calcResult.map(r =>
+    Object.values(r.allocations).reduce((s,v)=>s+v,0)
+  )];
+
+  const dataRows = allRowLabels.map(({ label, mallKey, shop }) => {
+    const isActive = activeMalls.has(mallKey);
+    const cols = calcResult.map(res => {
+      const productBrand = res.info.brand;
+      // この商品に関係するショップか
+      const relevant = shop.brands === null || shop.brands.includes(productBrand);
+      if (!relevant) return '—';
+      if (!isActive) return '除外';
+      return res.allocations[mallKey] !== undefined ? res.allocations[mallKey] : '—';
+    });
+    return [label, ...cols];
+  });
+
+  return [['', ...prodNames], janRow, totalRow, [], ...dataRows];
+}
+
+function copyTSV() {
+  const data = buildOutputData();
+  if (!data) return;
+  const tsv = data.map(r => r.join('\t')).join('\n');
+  navigator.clipboard.writeText(tsv).then(() => {
+    setStatus('✅ クリップボードにコピーしました（Excelに貼り付け可）');
+  });
+}
+
+function downloadCSV() {
+  const data = buildOutputData();
+  if (!data) return;
+  const bom = '\uFEFF';
+  const csv = bom + data.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  a.download = `在庫割り振り_${today}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── 起動 ────────────────────────────────────────────────
+loadData();
+</script>
+</body>
+</html>
